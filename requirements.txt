@@ -1,0 +1,8 @@
+flask
+gunicorn
+psycopg2-binary
+geopandas
+pandas
+shapely
+python-dotenv
+requests
