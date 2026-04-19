@@ -259,15 +259,14 @@ async function appliquerFiltres() {
 
     mettreAJourIndicateur(nb);
 
-    if (nb <= SEUIL_POINTS) {
-        // Mode points directs
+    // Si filtre commune -> toujours points directs (commune = zone petite)
+    // Si filtre EPCI ou rien -> décider selon le count
+    if (commune || nb <= SEUIL_POINTS) {
         modeAffichage = 'points';
         await chargerPointsDirects();
     } else {
-        // Mode choroplèthe
         modeAffichage = 'choro';
         await afficherChoroplèthe(types);
-        // Vider les points
         map.getSource('etablissements').setData({ type: 'FeatureCollection', features: [] });
     }
 
@@ -394,9 +393,14 @@ map.on('moveend', async () => {
             max_lon: bounds.getEast(),
             max_lat: bounds.getNorth()
         };
-        const params = buildParams(extra);
-        const res    = await fetch(`/api/count_etablissements?${params}`);
+        // Pour le count bbox, on enlève le filtre commune
+        // (on veut savoir combien il y a dans la vue, pas dans la commune)
+        const paramsCount = buildParams(extra);
+        paramsCount.delete('code_commune');
+        console.log('moveend - mode:', modeAffichage, 'count params:', paramsCount.toString());
+        const res    = await fetch(`/api/count_etablissements?${paramsCount}`);
         const data   = await res.json();
+        console.log('count bbox:', data.count, 'seuil:', SEUIL_POINTS);
 
         if (modeAffichage === 'choro' && data.count <= SEUIL_POINTS) {
             // Assez zoomé -> passer en points bbox
@@ -448,7 +452,10 @@ function mettreAJourStats(nb, statsData) {
     const creations  = statsData.total_creations;
     const cessations = statsData.total_cessations;
     const solde      = statsData.solde_periode;
+    const actifs     = statsData.nb_actifs     || 0;
+    const fermes     = statsData.nb_fermes     || 0;
 
+    // Panel analyses : événements sur la période
     document.getElementById('an-total').textContent      = (nb || 0).toLocaleString('fr-FR');
     document.getElementById('an-creations').textContent  = creations.toLocaleString('fr-FR');
     document.getElementById('an-cessations').textContent = cessations.toLocaleString('fr-FR');
@@ -457,9 +464,10 @@ function mettreAJourStats(nb, statsData) {
     soldeEl.textContent = (solde >= 0 ? '+' : '') + solde.toLocaleString('fr-FR');
     soldeEl.className   = 'stat-valeur ' + (solde >= 0 ? 'vert' : 'rouge');
 
+    // Header : état actuel des établissements filtrés
     document.getElementById('stat-total').textContent  = `${(nb || 0).toLocaleString('fr-FR')} établissements`;
-    document.getElementById('stat-actifs').textContent  = `${creations.toLocaleString('fr-FR')} créations`;
-    document.getElementById('stat-fermes').textContent  = `${cessations.toLocaleString('fr-FR')} cessations`;
+    document.getElementById('stat-actifs').textContent = `${actifs.toLocaleString('fr-FR')} actifs`;
+    document.getElementById('stat-fermes').textContent = `${fermes.toLocaleString('fr-FR')} fermés`;
 }
 
 function mettreAJourGraphiques(statsData, periode, filtreCommune) {

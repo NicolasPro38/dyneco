@@ -352,6 +352,44 @@ def api_stats():
     cur.close()
     conn.close()
 
+    # Actifs et fermés actuels dans la zone/période
+    params_etat = []
+    cond_etat_base = []
+    if code_commune:
+        cond_etat_base.append("e.code_commune = %s"); params_etat.append(code_commune)
+    elif code_epci:
+        cond_etat_base.append("c.code_epci = %s"); params_etat.append(code_epci)
+    if section_naf:
+        cond_etat_base.append("e.section_naf = %s"); params_etat.append(section_naf)
+
+    # Filtrer sur les établissements ayant eu un événement sur la période
+    periode_cond_etat_params = []
+    periode_cond_etat = build_periode_condition(periode_cond_etat_params, prefix='ev')
+    placeholders_etat = ','.join(['%s'] * len(types))
+    cond_etat_base.append(f"""
+        e.siret IN (
+            SELECT DISTINCT ev.siret FROM evenements_etablissements ev
+            WHERE {periode_cond_etat}
+            AND ev.type_evenement IN ({placeholders_etat})
+        )
+    """)
+    params_etat += periode_cond_etat_params + types
+
+    where_etat = " AND ".join(cond_etat_base) if cond_etat_base else "1=1"
+
+    cur.execute(f"""
+        SELECT
+            COUNT(*) FILTER (WHERE e.etat_admin = 'A') as nb_actifs,
+            COUNT(*) FILTER (WHERE e.etat_admin = 'F') as nb_fermes
+        FROM etablissements e
+        JOIN communes c ON e.code_commune = c.code_commune
+        WHERE {where_etat}
+    """, params_etat)
+    etat_row = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
     return jsonify({
         "evolution":        evolution,
         "secteurs":         secteurs,
@@ -359,7 +397,9 @@ def api_stats():
         "solde_periode":    solde_periode,
         "total_creations":  total_creations,
         "total_cessations": total_cessations,
-        "mode":             mode
+        "mode":             mode,
+        "nb_actifs":        etat_row['nb_actifs']  if etat_row else 0,
+        "nb_fermes":        etat_row['nb_fermes']  if etat_row else 0
     })
 
 @main.route('/api/sections_naf')
