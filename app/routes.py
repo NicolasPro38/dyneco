@@ -388,3 +388,145 @@ def api_sections_naf():
         'U': 'Activités extra-territoriales'
     }
     return jsonify(sections)
+
+@main.route('/api/stats_communes')
+def api_stats_communes():
+    """Agrégats par commune pour la choroplèthe"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    code_epci    = request.args.get('code_epci', '')
+    code_commune = request.args.get('code_commune', '')
+    section_naf  = request.args.get('section_naf', '')
+    types        = request.args.getlist('types') or ['creation', 'cessation']
+
+    params = []
+    cond = []
+
+    periode_cond = build_periode_condition(params, prefix='ev')
+    cond.append(periode_cond)
+
+    placeholders = ','.join(['%s'] * len(types))
+    cond.append(f"ev.type_evenement IN ({placeholders})")
+    params += types
+
+    if code_commune:
+        cond.append("e.code_commune = %s")
+        params.append(code_commune)
+    elif code_epci:
+        cond.append("c.code_epci = %s")
+        params.append(code_epci)
+
+    if section_naf:
+        cond.append("e.section_naf = %s")
+        params.append(section_naf)
+
+    cur.execute(f"""
+        SELECT
+            e.code_commune,
+            c.nom_commune,
+            COUNT(*) FILTER (WHERE ev.type_evenement = 'creation') as nb_creations,
+            COUNT(*) FILTER (WHERE ev.type_evenement = 'cessation') as nb_cessations,
+            COUNT(*) FILTER (WHERE ev.type_evenement = 'creation') -
+            COUNT(*) FILTER (WHERE ev.type_evenement = 'cessation') as solde
+        FROM evenements_etablissements ev
+        JOIN etablissements e ON ev.siret = e.siret
+        JOIN communes c ON e.code_commune = c.code_commune
+        WHERE {" AND ".join(cond)}
+        GROUP BY e.code_commune, c.nom_commune
+    """, params)
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return jsonify({r['code_commune']: dict(r) for r in rows})
+
+@main.route('/api/etablissements_bbox')
+def api_etablissements_bbox():
+    """Établissements dans une bbox visible — pour zoom élevé"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        min_lon = float(request.args.get('min_lon'))
+        min_lat = float(request.args.get('min_lat'))
+        max_lon = float(request.args.get('max_lon'))
+        max_lat = float(request.args.get('max_lat'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'bbox invalide'}), 400
+
+    types   = request.args.getlist('types') or ['creation', 'cessation']
+    section_naf = request.args.get('section_naf', '')
+
+    params = []
+    conditions = ["""
+        e.geom IS NOT NULL AND
+        e.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
+    """]
+    params += [min_lon, min_lat, max_lon, max_lat]
+
+    periode_cond_params = []
+    periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
+    placeholders = ','.join(['%s'] * len(types))
+    conditions.append(f"""
+        e.siret IN (
+            SELECT DISTINCT ev.siret
+            FROM evenements_etablissements ev
+            WHERE {periode_cond}
+            AND ev.type_evenement IN ({placeholders})
+        )
+    """)
+    params += periode_cond_params + types
+
+    if section_naf:
+        conditions.append("e.section_naf = %s")
+        params.append(section_naf)
+
+    where = " AND ".join(conditions)
+
+    cur.execute(f"""
+        SELECT
+            e.siret, e.nom, e.adresse,
+            e.code_naf, e.libelle_naf, e.section_naf,
+            e.tranche_effectif, e.etat_admin,
+            e.date_creation, e.date_fermeture, e.est_siege,
+            c.nom_commune, c.code_commune, c.code_epci, ep.nom_epci,
+            ST_AsGeoJSON(e.geom)::json AS geometry
+        FROM etablissements e
+        JOIN communes c ON e.code_commune = c.code_commune
+        JOIN epci ep ON c.code_epci = ep.code_epci
+        WHERE {where}
+        LIMIT 2000
+    """, params)
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    features = [{
+        "type": "Feature",
+        "properties": {
+            "siret":            r['siret'],
+            "nom":              r['nom'],
+            "adresse":          r['adresse'],
+            "code_naf":         r['code_naf'],
+            "libelle_naf":      r['libelle_naf'],
+            "section_naf":      r['section_naf'],
+            "tranche_effectif": r['tranche_effectif'],
+            "etat_admin":       r['etat_admin'],
+            "date_creation":    str(r['date_creation']) if r['date_creation'] else None,
+            "date_fermeture":   str(r['date_fermeture']) if r['date_fermeture'] else None,
+            "est_siege":        r['est_siege'],
+            "nom_commune":      r['nom_commune'],
+            "code_commune":     r['code_commune'],
+            "nom_epci":         r['nom_epci']
+        },
+        "geometry": r['geometry']
+    } for r in rows]
+
+    return jsonify({
+        "type": "FeatureCollection",
+        "features": features,
+        "total": len(features)
+    })

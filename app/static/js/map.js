@@ -30,6 +30,10 @@ let chartCommunes = null;
 let sectionsNaf = {};
 let communesGeoCache = null;
 let epcisGeoCache = null;
+let currentFiltres = {};
+let zoomTimer = null;
+const ZOOM_CHORO = 11;   // en dessous -> choroplèthe
+const ZOOM_POINTS = 12;  // au dessus -> points bbox
 
 // --- Gestion mode période ---
 function setMode(mode) {
@@ -234,8 +238,20 @@ async function appliquerFiltres() {
     const etabData  = await etabRes.json();
     const statsData = await statsRes.json();
 
-    map.getSource('etablissements').setData(etabData);
-    appliquerCouleurs();
+    // Stocker les filtres courants pour le zoom dynamique
+    currentFiltres = {};
+    if (commune) currentFiltres.code_commune = commune;
+    else if (epci) currentFiltres.code_epci = epci;
+    if (naf) currentFiltres.section_naf = naf;
+    Object.entries(periode).forEach(([k,v]) => currentFiltres[k] = v);
+    types.forEach(t => {
+        if (!currentFiltres.types) currentFiltres.types = [];
+        currentFiltres.types.push(t);
+    });
+
+    // Charger selon le zoom actuel
+    await chargerSelonZoom();
+
     mettreAJourStats(etabData, statsData);
     mettreAJourGraphiques(statsData, periode, commune);
     recentrerCarte(epci, commune);
@@ -452,3 +468,147 @@ function showTooltip(lngLat, html) {
     tooltip.style.top  = (point.y - 10) + 'px';
 }
 function hideTooltip() { tooltip.style.display = 'none'; }
+
+// --- GESTION NIVEAUX DE ZOOM ---
+
+function getZoom() { return map.getZoom(); }
+
+async function chargerSelonZoom() {
+    const zoom = getZoom();
+
+    if (zoom < ZOOM_CHORO) {
+        // Mode choroplèthe — masquer les points
+        map.setLayoutProperty('etablissements-points', 'visibility', 'none');
+        await mettreAJourChoroplèthe();
+    } else {
+        // Mode points bbox
+        map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
+        map.setPaintProperty('communes-choro', 'fill-opacity', 0);
+        await chargerPointsBbox();
+    }
+}
+
+async function mettreAJourChoroplèthe() {
+    const params = new URLSearchParams(currentFiltres);
+    const res = await fetch(`/api/stats_communes?${params}`);
+    const statsParCommune = await res.json();
+
+    // Calculer min/max pour l'échelle de couleur
+    const valeurs = Object.values(statsParCommune).map(r => r.solde);
+    if (!valeurs.length) return;
+
+    const max = Math.max(...valeurs.map(Math.abs));
+
+    // Construire l'expression de couleur MapLibre
+    // On colorie par solde net : rouge si négatif, vert si positif
+    const colorStops = [
+        -max, '#b71c1c',
+        -max/2, '#ef5350',
+        0, '#37474f',
+        max/2, '#66bb6a',
+        max, '#1b5e20'
+    ];
+
+    // Mettre à jour les propriétés des features communes avec les stats
+    const updatedCommunes = {
+        ...communesGeoCache,
+        features: communesGeoCache.features.map(f => {
+            const stats = statsParCommune[f.properties.code_commune];
+            return {
+                ...f,
+                properties: {
+                    ...f.properties,
+                    solde:        stats ? stats.solde        : 0,
+                    nb_creations: stats ? stats.nb_creations : 0,
+                    nb_cessations: stats ? stats.nb_cessations : 0
+                }
+            };
+        })
+    };
+
+    map.getSource('communes').setData(updatedCommunes);
+
+    map.setPaintProperty('communes-choro', 'fill-color', [
+        'interpolate', ['linear'], ['get', 'solde'],
+        -max, '#b71c1c',
+        -max * 0.5, '#ef5350',
+        0, '#37474f',
+        max * 0.5, '#66bb6a',
+        max, '#1b5e20'
+    ]);
+    map.setPaintProperty('communes-choro', 'fill-opacity', 0.75);
+
+    // Tooltip enrichi pour la choroplèthe
+    map.off('mousemove', 'communes-fill', onHoverCommune);
+    map.on('mousemove', 'communes-fill', onHoverCommuneChoro);
+}
+
+function onHoverCommune(e) {
+    if (e.features.length > 0) {
+        const p = e.features[0].properties;
+        showTooltip(e.lngLat, `<strong>${p.nom_commune}</strong><br>${p.nom_epci}`);
+    }
+}
+
+function onHoverCommuneChoro(e) {
+    if (e.features.length > 0) {
+        const p = e.features[0].properties;
+        const solde = p.solde || 0;
+        const signe = solde >= 0 ? '+' : '';
+        showTooltip(e.lngLat, `
+            <strong>${p.nom_commune}</strong><br>
+            🟢 ${p.nb_creations || 0} créations<br>
+            🔴 ${p.nb_cessations || 0} cessations<br>
+            <strong>Solde : ${signe}${solde}</strong>
+        `);
+    }
+}
+
+async function chargerPointsBbox() {
+    const bounds = map.getBounds();
+    const params = new URLSearchParams({
+        ...currentFiltres,
+        min_lon: bounds.getWest(),
+        min_lat: bounds.getSouth(),
+        max_lon: bounds.getEast(),
+        max_lat: bounds.getNorth()
+    });
+
+    // Retirer les params non bbox
+    params.delete('code_epci');
+    params.delete('code_commune');
+
+    // Garder le filtre géo si commune sélectionnée
+    if (currentFiltres.code_commune) params.set('code_commune', currentFiltres.code_commune);
+
+    const res = await fetch(`/api/etablissements_bbox?${params}`);
+    const data = await res.json();
+    map.getSource('etablissements').setData(data);
+    appliquerCouleurs();
+
+    // Mettre à jour compteur header
+    document.getElementById('stat-total').textContent = `${data.total.toLocaleString('fr-FR')} établissements (vue)`;
+}
+
+// Écouter les changements de zoom et de déplacement
+map.on('zoomend', () => {
+    if (Object.keys(currentFiltres).length > 0) chargerSelonZoom();
+});
+
+map.on('moveend', () => {
+    if (getZoom() >= ZOOM_CHORO && Object.keys(currentFiltres).length > 0) {
+        if (zoomTimer) clearTimeout(zoomTimer);
+        zoomTimer = setTimeout(chargerPointsBbox, 300);
+    }
+});
+
+// Indicateur zoom
+function mettreAJourIndicateurZoom() {
+    const zoom = Math.round(getZoom() * 10) / 10;
+    const mode = zoom < ZOOM_CHORO ? 'Choroplèthe communes' : 'Points établissements';
+    const el = document.getElementById('zoom-info');
+    if (el) el.textContent = `Zoom : ${zoom} | ${mode}`;
+}
+
+map.on('zoom', mettreAJourIndicateurZoom);
+map.on('load', mettreAJourIndicateurZoom);

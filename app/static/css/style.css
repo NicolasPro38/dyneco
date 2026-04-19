@@ -171,3 +171,18 @@ canvas { max-width: 100%; }
     border-radius: 3px;
     margin-left: 4px;
 }
+
+/* Indicateur zoom */
+#zoom-info {
+    position: absolute;
+    bottom: 30px;
+    left: 270px;
+    background: #1a1f2e;
+    border: 1px solid #2e3650;
+    color: #8892a4;
+    font-size: 0.72rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    z-index: 10;
+    pointer-events: none;
+}
