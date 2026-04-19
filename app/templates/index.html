@@ -4,95 +4,135 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DynEco — Dynamisme économique du territoire</title>
-
-    <!-- MapLibre GL JS -->
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+<div id="app">
 
-    <div id="app">
+    <header id="header">
+        <div id="header-title">
+            <span id="header-main">DynEco</span>
+            <span id="header-sub">Observer le dynamisme économique de votre territoire</span>
+        </div>
+        <div id="header-stats">
+            <span class="header-stat" id="stat-total">— établissements</span>
+            <span class="header-stat" id="stat-actifs">— actifs</span>
+            <span class="header-stat" id="stat-fermes">— fermés</span>
+        </div>
+    </header>
 
-        <!-- Bandeau titre -->
-        <header id="header">
-            <div id="header-title">
-                <span id="header-main">DynEco</span>
-                <span id="header-sub">Observer le dynamisme économique de votre territoire</span>
+    <aside id="panel-filtres">
+        <h2>Filtres</h2>
+
+        <div class="filtre-bloc">
+            <label>EPCI</label>
+            <select id="filtre-epci">
+                <option value="">Tous les EPCI</option>
+            </select>
+        </div>
+
+        <div class="filtre-bloc">
+            <label>Commune</label>
+            <select id="filtre-commune">
+                <option value="">Toutes les communes</option>
+            </select>
+        </div>
+
+        <div class="filtre-bloc">
+            <label>Période</label>
+            <select id="filtre-granularite">
+                <option value="annee">Annuel</option>
+                <option value="trimestre">Trimestriel</option>
+            </select>
+            <div id="filtre-annees">
+                <input type="number" id="annee-debut" min="2000" max="2025" value="2015">
+                <span>→</span>
+                <input type="number" id="annee-fin" min="2000" max="2025" value="2024">
             </div>
-        </header>
+        </div>
 
-        <!-- Panneau filtres (gauche) -->
-        <aside id="panel-filtres">
-            <h2>Filtres</h2>
-
-            <div class="filtre-bloc">
-                <label>Territoire</label>
-                <select id="filtre-epci">
-                    <option value="">Tous les EPCI</option>
-                </select>
+        <div class="filtre-bloc">
+            <label>Type d'événement</label>
+            <div id="filtre-evenements">
+                <label class="checkbox-label"><input type="checkbox" value="creation" checked> Créations</label>
+                <label class="checkbox-label"><input type="checkbox" value="cessation" checked> Cessations</label>
+                <label class="checkbox-label"><input type="checkbox" value="transfert"> Transferts</label>
+                <label class="checkbox-label"><input type="checkbox" value="redressement"> Redressements</label>
+                <label class="checkbox-label"><input type="checkbox" value="liquidation"> Liquidations</label>
             </div>
+        </div>
 
-            <div class="filtre-bloc">
-                <label>Période</label>
-                <div id="filtre-periode">
-                    <select id="filtre-granularite">
-                        <option value="annee">Annuel</option>
-                        <option value="trimestre">Trimestriel</option>
-                    </select>
-                    <div id="filtre-annees">
-                        <input type="number" id="annee-debut" min="2000" max="2025" value="2020" placeholder="De">
-                        <span>→</span>
-                        <input type="number" id="annee-fin" min="2000" max="2025" value="2024" placeholder="À">
-                    </div>
+        <div class="filtre-bloc">
+            <label>Secteur NAF</label>
+            <select id="filtre-naf">
+                <option value="">Tous secteurs</option>
+            </select>
+        </div>
+
+        <div class="filtre-bloc">
+            <label>Colorier les points par</label>
+            <select id="filtre-couleur">
+                <option value="etat_admin">État (actif / fermé)</option>
+                <option value="section_naf">Secteur d'activité</option>
+                <option value="tranche_effectif">Tranche d'effectif</option>
+            </select>
+        </div>
+
+        <button id="btn-appliquer">Appliquer</button>
+
+        <div class="filtre-bloc">
+            <label>Légende</label>
+            <div id="legende"></div>
+        </div>
+    </aside>
+
+    <div id="map"></div>
+
+    <aside id="panel-analyses">
+        <h2>Analyses</h2>
+        <div id="analyses-content">
+
+            <div class="stat-grid">
+                <div class="stat-bloc">
+                    <div class="stat-valeur" id="an-total">—</div>
+                    <div class="stat-label">établissements</div>
+                </div>
+                <div class="stat-bloc">
+                    <div class="stat-valeur vert" id="an-creations">—</div>
+                    <div class="stat-label">créations</div>
+                </div>
+                <div class="stat-bloc">
+                    <div class="stat-valeur rouge" id="an-cessations">—</div>
+                    <div class="stat-label">cessations</div>
+                </div>
+                <div class="stat-bloc">
+                    <div class="stat-valeur" id="an-solde">—</div>
+                    <div class="stat-label">solde net</div>
                 </div>
             </div>
 
-            <div class="filtre-bloc">
-                <label>Type d'événement</label>
-                <div id="filtre-evenements">
-                    <label class="checkbox-label"><input type="checkbox" value="creation" checked> Créations</label>
-                    <label class="checkbox-label"><input type="checkbox" value="cessation" checked> Cessations</label>
-                    <label class="checkbox-label"><input type="checkbox" value="transfert" checked> Transferts</label>
-                    <label class="checkbox-label"><input type="checkbox" value="redressement"> Redressements</label>
-                    <label class="checkbox-label"><input type="checkbox" value="liquidation"> Liquidations</label>
-                </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Créations / Cessations par année</div>
+                <canvas id="chart-evolution"></canvas>
             </div>
 
-            <div class="filtre-bloc">
-                <label>Secteur NAF</label>
-                <select id="filtre-naf">
-                    <option value="">Tous secteurs</option>
-                </select>
+            <div class="chart-bloc">
+                <div class="chart-titre">Répartition par secteur (actifs)</div>
+                <canvas id="chart-secteurs"></canvas>
             </div>
 
-            <div class="filtre-bloc">
-                <label>Colorier les points par</label>
-                <select id="filtre-couleur">
-                    <option value="type_evenement">Type d'événement</option>
-                    <option value="section_naf">Secteur d'activité</option>
-                    <option value="tranche_effectif">Tranche d'effectif</option>
-                    <option value="etat_admin">État (actif / fermé)</option>
-                </select>
+            <div class="chart-bloc" id="bloc-communes">
+                <div class="chart-titre">Top communes — créations sur la période</div>
+                <canvas id="chart-communes"></canvas>
             </div>
 
-            <button id="btn-appliquer">Appliquer</button>
-        </aside>
+        </div>
+    </aside>
 
-        <!-- Carte -->
-        <div id="map"></div>
-
-        <!-- Panneau analyses (droite) -->
-        <aside id="panel-analyses">
-            <h2>Analyses</h2>
-            <div id="analyses-content">
-                <p class="placeholder">Appliquez des filtres pour afficher les analyses.</p>
-            </div>
-        </aside>
-
-    </div>
-
-    <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+</div>
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
 </body>
 </html>
