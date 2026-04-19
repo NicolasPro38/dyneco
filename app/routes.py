@@ -185,26 +185,25 @@ def api_etablissements():
     # Filtre géographique
     conditions += build_geo_filter(params)
 
-    # Filtre temporel sur date_creation
-    conditions.append(build_date_condition(params))
-
-    # Filtre type événement -> on filtre les établissements
-    # qui ont eu l'un des événements cochés sur la période
+    # Filtre type événement + période combinés
+    # On filtre les établissements qui ont eu l'un des événements cochés sur la période
     types = request.args.getlist('types')
-    if types:
-        periode_cond_params = []
-        periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
-        placeholders = ','.join(['%s'] * len(types))
-        params_types = periode_cond_params + types
-        conditions.append(f"""
-            e.siret IN (
-                SELECT DISTINCT ev.siret
-                FROM evenements_etablissements ev
-                WHERE {periode_cond}
-                AND ev.type_evenement IN ({placeholders})
-            )
-        """)
-        params += params_types
+    if not types:
+        types = ['creation', 'cessation']
+
+    periode_cond_params = []
+    periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
+    placeholders = ','.join(['%s'] * len(types))
+    params_types = periode_cond_params + types
+    conditions.append(f"""
+        e.siret IN (
+            SELECT DISTINCT ev.siret
+            FROM evenements_etablissements ev
+            WHERE {periode_cond}
+            AND ev.type_evenement IN ({placeholders})
+        )
+    """)
+    params += params_types
 
     where = " AND ".join(conditions)
 

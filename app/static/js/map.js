@@ -110,15 +110,29 @@ map.on('load', async () => {
     const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '320px' });
     map.on('click', 'etablissements-points', (e) => {
         const p = e.features[0].properties;
+        const etatLabel = p.etat_admin === 'A' ? '🟢 Actif' : '🔴 Fermé';
+
+        // Contexte période : créé et/ou fermé sur la période ?
+        let contexte = '';
+        const dateCreation  = p.date_creation  ? p.date_creation.substring(0,10)  : null;
+        const dateFermeture = p.date_fermeture ? p.date_fermeture.substring(0,10) : null;
+
+        if (dateCreation && dateFermeture) {
+            contexte = `<div class="popup-contexte">⚠️ Créé le ${dateCreation}, fermé le ${dateFermeture}</div>`;
+        } else if (dateCreation && p.etat_admin === 'F') {
+            contexte = `<div class="popup-contexte">🔴 Créé le ${dateCreation} — fermé depuis</div>`;
+        } else if (dateCreation) {
+            contexte = `<div class="popup-contexte">🟢 Créé le ${dateCreation} — toujours actif</div>`;
+        }
+
         popup.setLngLat(e.lngLat).setHTML(`
             <div class="popup-content">
                 <div class="popup-titre">${p.nom}</div>
-                <div class="popup-etat">${p.etat_admin === 'A' ? '🟢 Actif' : '🔴 Fermé'}</div>
+                <div class="popup-etat">${etatLabel}</div>
+                ${contexte}
                 <div class="popup-ligne">${p.adresse || ''}</div>
                 <div class="popup-ligne"><strong>Activité :</strong> ${p.libelle_naf || p.code_naf || 'N/R'}</div>
                 <div class="popup-ligne"><strong>Effectif :</strong> ${p.tranche_effectif || 'N/R'}</div>
-                <div class="popup-ligne"><strong>Création :</strong> ${p.date_creation ? p.date_creation.substring(0,10) : 'N/R'}</div>
-                <div class="popup-ligne"><strong>Fermeture :</strong> ${p.date_fermeture ? p.date_fermeture.substring(0,10) : '—'}</div>
                 <div class="popup-ligne"><strong>Commune :</strong> ${p.nom_commune}</div>
                 <div class="popup-ligne"><strong>SIRET :</strong> ${p.siret}</div>
             </div>
@@ -378,16 +392,22 @@ function mettreAJourGraphiques(statsData, periode, filtreCommune) {
 
 function mettreAJourLegende() {
     const legende = document.getElementById('legende');
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     legende.innerHTML = '';
+
     if (modeColor === 'etat_admin' || modeColor === 'type_evenement') {
-        [['#4CAF50','Actif'],['#F44336','Fermé']].forEach(([c,l]) => {
+        legende.innerHTML += `<div class="leg-date">État au ${dateStr}</div>`;
+        [['#4CAF50','Actif'],['#F44336','Fermé — créé sur la période']].forEach(([c,l]) => {
             legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c}"></span>${l}</div>`;
         });
     } else if (modeColor === 'section_naf') {
+        legende.innerHTML += `<div class="leg-date">Secteur au ${dateStr}</div>`;
         Object.entries(COULEURS_NAF).forEach(([k,c]) => {
             legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c}"></span>${k} — ${LABELS_NAF[k]}</div>`;
         });
     } else if (modeColor === 'tranche_effectif') {
+        legende.innerHTML += `<div class="leg-date">Effectif au ${dateStr}</div>`;
         [['#607D8B','Non employeur'],['#4CAF50','1-2'],['#8BC34A','3-5'],
          ['#FFC107','6-9'],['#FF9800','10-19'],['#FF5722','20-49'],
          ['#F44336','50-99'],['#9C27B0','100-199'],['#1A237E','200+']

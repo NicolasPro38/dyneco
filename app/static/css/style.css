@@ -138,3 +138,36 @@ canvas { max-width: 100%; }
 
 #bloc-periode-annee { flex-direction: column; }
 #bloc-periode-trim  { flex-direction: column; }
+
+.leg-date {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-bottom: 4px;
+}
+
+.popup-contexte {
+    font-size: 0.78rem;
+    color: #b0b8c8;
+    background: #242938;
+    border-radius: 3px;
+    padding: 4px 6px;
+    margin-bottom: 6px;
+    border-left: 2px solid #4a90d9;
+}
+
+.checkbox-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.checkbox-disabled input {
+    pointer-events: none;
+}
+.badge-bientot {
+    font-size: 0.62rem;
+    background: #2e3650;
+    color: #8892a4;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+}
