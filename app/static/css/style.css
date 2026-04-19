@@ -1,0 +1,181 @@
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --header-height: 52px;
+    --panel-width: 280px;
+    --bg-panel: #1a1f2e;
+    --bg-panel-light: #242938;
+    --border: #2e3650;
+    --text: #e8eaf0;
+    --text-muted: #8892a4;
+    --accent: #4a90d9;
+    --accent-hover: #5ba3f0;
+    --font: 'Segoe UI', system-ui, sans-serif;
+}
+
+body {
+    font-family: var(--font);
+    background: #0f1118;
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+}
+
+#app {
+    display: grid;
+    grid-template-columns: var(--panel-width) 1fr var(--panel-width);
+    grid-template-rows: var(--header-height) 1fr;
+    height: 100vh;
+}
+
+/* Header */
+#header {
+    grid-column: 1 / -1;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 12px;
+}
+
+#header-main {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+}
+
+#header-sub {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Panneaux latéraux */
+#panel-filtres,
+#panel-analyses {
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+#panel-analyses {
+    border-right: none;
+    border-left: 1px solid var(--border);
+}
+
+h2 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+/* Blocs de filtres */
+.filtre-bloc {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.filtre-bloc label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+select,
+input[type="number"] {
+    background: var(--bg-panel-light);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    width: 100%;
+}
+
+#filtre-periode {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+#filtre-annees {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#filtre-annees input {
+    width: 80px;
+}
+
+#filtre-annees span {
+    color: var(--text-muted);
+}
+
+#filtre-evenements {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+    cursor: pointer;
+}
+
+.checkbox-label input {
+    width: auto;
+    accent-color: var(--accent);
+}
+
+#btn-appliquer {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 9px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 4px;
+    transition: background 0.2s;
+}
+
+#btn-appliquer:hover {
+    background: var(--accent-hover);
+}
+
+/* Carte */
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+/* Panneau analyses */
+.placeholder {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin-top: 20px;
+}
