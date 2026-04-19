@@ -335,30 +335,30 @@ async function afficherChoroplèthe(types) {
     const maxVal  = Math.max(...valeurs.map(r => Math.max(r.nb_creations, r.nb_cessations, Math.abs(r.solde))), 1);
 
     if (onlyCreations) {
-        // Blanc → rouge foncé selon nb_creations
+        // Blanc → vert foncé selon nb_creations
         colorExpr = ['interpolate', ['linear'], ['get', 'nb_creations'],
-            0, '#f5f5f5',
-            maxVal * 0.25, '#ef9a9a',
-            maxVal * 0.5,  '#e53935',
-            maxVal,        '#7f0000'
+            0,            '#1e2a3a',
+            maxVal * 0.1, '#a5d6a7',
+            maxVal * 0.4, '#43a047',
+            maxVal,       '#1b5e20'
         ];
     } else if (onlyCessations) {
         // Blanc → bleu foncé selon nb_cessations
         colorExpr = ['interpolate', ['linear'], ['get', 'nb_cessations'],
-            0, '#f5f5f5',
-            maxVal * 0.25, '#90caf9',
-            maxVal * 0.5,  '#1e88e5',
-            maxVal,        '#0d47a1'
+            0,            '#1e2a3a',
+            maxVal * 0.1, '#90caf9',
+            maxVal * 0.4, '#1e88e5',
+            maxVal,       '#0d47a1'
         ];
     } else {
-        // Solde net : rouge (négatif) → blanc (0) → vert (positif)
+        // Solde net : rouge (négatif) → neutre → vert (positif)
         const maxSolde = Math.max(...valeurs.map(r => Math.abs(r.solde)), 1);
         colorExpr = ['interpolate', ['linear'], ['get', 'solde'],
-            -maxSolde, '#7f0000',
-            -maxSolde * 0.5, '#e53935',
-            0, '#f5f5f5',
-            maxSolde * 0.5, '#43a047',
-            maxSolde, '#1b5e20'
+            -maxSolde,       '#7f0000',
+            -maxSolde * 0.3, '#e53935',
+            0,               '#37474f',
+            maxSolde * 0.3,  '#43a047',
+            maxSolde,        '#1b5e20'
         ];
     }
 
@@ -381,35 +381,11 @@ function mettreAJourIndicateur(nb, isChoro = false) {
     }
 }
 
-// Détecter si on zoome suffisamment pour passer en points depuis la choroplèthe
+// Listener unique pour gérer la bascule choro <-> points selon zoom
 map.on('moveend', async () => {
-    if (modeAffichage !== 'choro') return;
-
-    const bounds = map.getBounds();
-    const extra  = {
-        min_lon: bounds.getWest(),
-        min_lat: bounds.getSouth(),
-        max_lon: bounds.getEast(),
-        max_lat: bounds.getNorth()
-    };
-    const params = buildParams(extra);
-    const res    = await fetch(`/api/count_etablissements?${params}`);
-    const data   = await res.json();
-
-    if (data.count <= SEUIL_POINTS) {
-        // La bbox visible est assez petite -> passer en points
-        modeAffichage = 'bbox';
-        map.setPaintProperty('communes-choro', 'fill-opacity', 0);
-        map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
-        map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
-        await chargerPointsBbox();
-        mettreAJourIndicateur(data.count);
-    }
-});
-
-map.on('moveend', async () => {
-    if (modeAffichage !== 'bbox') return;
+    if (Object.keys(currentFiltres).length === 0) return;
     if (moveTimer) clearTimeout(moveTimer);
+
     moveTimer = setTimeout(async () => {
         const bounds = map.getBounds();
         const extra  = {
@@ -418,16 +394,28 @@ map.on('moveend', async () => {
             max_lon: bounds.getEast(),
             max_lat: bounds.getNorth()
         };
-        const params  = buildParams(extra);
-        const res     = await fetch(`/api/count_etablissements?${params}`);
-        const data    = await res.json();
+        const params = buildParams(extra);
+        const res    = await fetch(`/api/count_etablissements?${params}`);
+        const data   = await res.json();
 
-        if (data.count > SEUIL_POINTS) {
-            // On a dézoomé -> repasser en choroplèthe
+        if (modeAffichage === 'choro' && data.count <= SEUIL_POINTS) {
+            // Assez zoomé -> passer en points bbox
+            modeAffichage = 'bbox';
+            map.setPaintProperty('communes-choro', 'fill-opacity', 0);
+            map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+            map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
+            await chargerPointsBbox();
+            mettreAJourIndicateur(data.count);
+
+        } else if (modeAffichage === 'bbox' && data.count > SEUIL_POINTS) {
+            // Dézoomé -> repasser en choroplèthe
             modeAffichage = 'choro';
+            map.setLayoutProperty('etablissements-points', 'visibility', 'none');
             const types = currentFiltres.types || ['creation', 'cessation'];
             await afficherChoroplèthe(Array.isArray(types) ? types : [types]);
-        } else {
+
+        } else if (modeAffichage === 'bbox') {
+            // Toujours en mode bbox -> recharger la bbox
             await chargerPointsBbox();
         }
     }, 400);
@@ -577,18 +565,18 @@ function mettreAJourLegende() {
         const onlyC  = types.includes('creation')  && !types.includes('cessation');
         const onlyCs = types.includes('cessation') && !types.includes('creation');
         if (onlyC) {
-            legende.innerHTML += `<div class="leg-date">Créations — dégradé intensité</div>`;
-            [['#f5f5f5','Peu'],['#e53935','Moyen'],['#7f0000','Beaucoup']].forEach(([c,l]) => {
+            legende.innerHTML += `<div class="leg-date">Créations — intensité par commune</div>`;
+            [['#1e2a3a','Aucune'],['#a5d6a7','Peu'],['#43a047','Moyen'],['#1b5e20','Beaucoup']].forEach(([c,l]) => {
                 legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c};border:1px solid #444"></span>${l}</div>`;
             });
         } else if (onlyCs) {
-            legende.innerHTML += `<div class="leg-date">Cessations — dégradé intensité</div>`;
-            [['#f5f5f5','Peu'],['#1e88e5','Moyen'],['#0d47a1','Beaucoup']].forEach(([c,l]) => {
+            legende.innerHTML += `<div class="leg-date">Cessations — intensité par commune</div>`;
+            [['#1e2a3a','Aucune'],['#90caf9','Peu'],['#1e88e5','Moyen'],['#0d47a1','Beaucoup']].forEach(([c,l]) => {
                 legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c};border:1px solid #444"></span>${l}</div>`;
             });
         } else {
             legende.innerHTML += `<div class="leg-date">Solde net (créations - cessations)</div>`;
-            [['#7f0000','Très négatif'],['#e53935','Négatif'],['#f5f5f5','Neutre'],['#43a047','Positif'],['#1b5e20','Très positif']].forEach(([c,l]) => {
+            [['#7f0000','Très négatif'],['#e53935','Négatif'],['#37474f','Neutre'],['#43a047','Positif'],['#1b5e20','Très positif']].forEach(([c,l]) => {
                 legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c};border:1px solid #444"></span>${l}</div>`;
             });
         }
