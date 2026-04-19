@@ -145,11 +145,22 @@ map.on('load', async () => {
         } else if (dateCreation) {
             contexte = `<div class="popup-contexte">🟢 Créé le ${dateCreation} — toujours actif</div>`;
         }
+
+        // Note Bodacc si décalage entre événement et état Sirene
+        let noteBodacc = '';
+        if (p.dernier_evenement === 'liquidation' && p.etat_admin === 'A') {
+            noteBodacc = `<div class="popup-note">⚠️ Annonce de liquidation publiée au Bodacc — état Sirene pas encore mis à jour</div>`;
+        } else if (p.dernier_evenement === 'redressement' && p.etat_admin === 'A') {
+            noteBodacc = `<div class="popup-note">ℹ️ Procédure de redressement publiée au Bodacc</div>`;
+        } else if (p.dernier_evenement === 'liquidation' && p.etat_admin === 'F') {
+            noteBodacc = `<div class="popup-note">🔴 Liquidation judiciaire — établissement fermé</div>`;
+        }
         popup.setLngLat(e.lngLat).setHTML(`
             <div class="popup-content">
                 <div class="popup-titre">${p.nom}</div>
                 <div class="popup-etat">${etatLabel}</div>
                 ${contexte}
+                ${noteBodacc}
                 <div class="popup-ligne">${p.adresse || ''}</div>
                 <div class="popup-ligne"><strong>Activité :</strong> ${p.libelle_naf || p.code_naf || 'N/R'}</div>
                 <div class="popup-ligne"><strong>Effectif :</strong> ${p.tranche_effectif || 'N/R'}</div>

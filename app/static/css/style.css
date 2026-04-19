@@ -210,3 +210,13 @@ canvas { max-width: 100%; }
 
 .fond-btn:hover { background: #242938; color: var(--text); }
 .fond-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.popup-note {
+    font-size: 0.75rem;
+    color: #ffcc80;
+    background: #2a2010;
+    border-radius: 3px;
+    padding: 4px 6px;
+    margin-bottom: 6px;
+    border-left: 2px solid #FF9800;
+}
