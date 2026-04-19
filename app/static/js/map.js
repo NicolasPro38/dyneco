@@ -219,6 +219,10 @@ map.on('load', async () => {
     });
 
     document.getElementById('btn-appliquer').addEventListener('click', appliquerFiltres);
+
+    // Initialiser les fonds de carte
+    await initFondCarte();
+
     appliquerFiltres();
 });
 
@@ -670,14 +674,14 @@ async function initFondCarte() {
         attribution: '© IGN'
     });
 
-    // Couches raster (masquées par défaut)
+    // Couches raster insérées SOUS communes-choro
     map.addLayer({
         id: 'fond-plan',
         type: 'raster',
         source: 'ign-plan',
         layout: { visibility: 'none' },
         paint: { 'raster-opacity': 1 }
-    }, 'communes-choro'); // insérer sous les couches vecteur
+    }, 'communes-choro');
 
     map.addLayer({
         id: 'fond-ortho',
@@ -687,7 +691,7 @@ async function initFondCarte() {
         paint: { 'raster-opacity': 1 }
     }, 'communes-choro');
 
-    // Masque hors zone — fond sombre sur tout ce qui est hors EPCI
+    // Masque hors zone inséré APRES les fonds mais AVANT les communes
     await chargerMasqueZone();
 }
 
@@ -725,6 +729,7 @@ async function chargerMasqueZone() {
     };
 
     map.addSource('masque-zone', { type: 'geojson', data: masqueGeojson });
+    // Insérer le masque APRES les fonds IGN mais AVANT les communes
     map.addLayer({
         id: 'masque-zone-fill',
         type: 'fill',
@@ -733,7 +738,7 @@ async function chargerMasqueZone() {
             'fill-color': '#0f1118',
             'fill-opacity': 1
         }
-    }); // au-dessus de tout pour masquer hors zone
+    }, 'communes-choro'); // sous les communes
 
     masqueZoneCharge = true;
 }
@@ -766,8 +771,4 @@ function setFond(type) {
     }
 }
 
-// Initialiser après le chargement de la carte
-map.on('load', () => {
-    // Appelé après le load principal
-    setTimeout(initFondCarte, 100);
-});
+
