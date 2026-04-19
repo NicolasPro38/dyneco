@@ -179,3 +179,19 @@ input[type="number"] {
     text-align: center;
     margin-top: 20px;
 }
+
+/* Tooltip carte */
+#map-tooltip {
+    position: absolute;
+    display: none;
+    background: #1a1f2e;
+    border: 1px solid #2e3650;
+    color: #e8eaf0;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    pointer-events: none;
+    z-index: 100;
+    line-height: 1.5;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
