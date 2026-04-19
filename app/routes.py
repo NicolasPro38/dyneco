@@ -530,3 +530,49 @@ def api_etablissements_bbox():
         "features": features,
         "total": len(features)
     })
+
+@main.route('/api/count_etablissements')
+def api_count_etablissements():
+    """Compte rapide pour décider points vs choroplèthe"""
+    conn = get_db()
+    cur = conn.cursor()
+
+    code_epci    = request.args.get('code_epci', '')
+    code_commune = request.args.get('code_commune', '')
+    types        = request.args.getlist('types') or ['creation', 'cessation']
+
+    params = []
+    cond   = []
+
+    periode_cond_params = []
+    periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
+    placeholders = ','.join(['%s'] * len(types))
+    cond.append(f"""
+        e.siret IN (
+            SELECT DISTINCT ev.siret
+            FROM evenements_etablissements ev
+            WHERE {periode_cond}
+            AND ev.type_evenement IN ({placeholders})
+        )
+    """)
+    params += periode_cond_params + types
+
+    if code_commune:
+        cond.append("e.code_commune = %s")
+        params.append(code_commune)
+    elif code_epci:
+        cond.append("c.code_epci = %s")
+        params.append(code_epci)
+
+    cur.execute(f"""
+        SELECT COUNT(*) as nb
+        FROM etablissements e
+        JOIN communes c ON e.code_commune = c.code_commune
+        WHERE e.geom IS NOT NULL
+        AND {" AND ".join(cond)}
+    """, params)
+
+    nb = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    return jsonify({'count': nb})

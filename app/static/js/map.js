@@ -14,28 +14,21 @@ const LABELS_NAF = {
     'S':'Autres services','T':'Ménages','U':'Extra-territorial'
 };
 
-const COULEURS_EVT = {
-    'creation': '#4CAF50',
-    'cessation': '#F44336',
-    'transfert': '#FF9800',
-    'redressement': '#9C27B0',
-    'liquidation': '#212121'
-};
+const SEUIL_POINTS = 2000; // en dessous -> points directs, au dessus -> choroplèthe
 
-let modeColor = 'etat_admin';
-let modePeriode = 'annee';
-let chartEvolution = null;
-let chartSecteurs = null;
-let chartCommunes = null;
-let sectionsNaf = {};
-let communesGeoCache = null;
-let epcisGeoCache = null;
+let modeColor    = 'etat_admin';
+let modePeriode  = 'annee';
+let modeAffichage = 'points'; // 'points' ou 'choro'
 let currentFiltres = {};
-let zoomTimer = null;
-const ZOOM_CHORO = 11;   // en dessous -> choroplèthe
-const ZOOM_POINTS = 12;  // au dessus -> points bbox
+let chartEvolution = null;
+let chartSecteurs  = null;
+let chartCommunes  = null;
+let sectionsNaf    = {};
+let communesGeoCache = null;
+let epcisGeoCache    = null;
+let moveTimer = null;
 
-// --- Gestion mode période ---
+// --- Helpers période ---
 function setMode(mode) {
     modePeriode = mode;
     document.getElementById('bloc-periode-annee').style.display = mode === 'annee' ? 'flex' : 'none';
@@ -58,6 +51,16 @@ function getParamsPeriode() {
     return p;
 }
 
+function buildParams(extra = {}) {
+    const p = new URLSearchParams();
+    const f = { ...currentFiltres, ...extra };
+    Object.entries(f).forEach(([k, v]) => {
+        if (Array.isArray(v)) v.forEach(val => p.append(k, val));
+        else p.set(k, v);
+    });
+    return p;
+}
+
 // --- MapLibre ---
 const map = new maplibregl.Map({
     container: 'map',
@@ -72,11 +75,9 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
 map.on('load', async () => {
-    // Charger les bornes de période
     const bornesRes = await fetch('/api/bornes_periode');
     const bornes = await bornesRes.json();
 
-    // Initialiser les valeurs par défaut
     document.getElementById('annee-debut').value      = Math.max(bornes.max_annee - 5, bornes.min_annee);
     document.getElementById('annee-fin').value        = bornes.max_annee;
     document.getElementById('annee-debut-trim').value = Math.max(bornes.max_annee - 2, bornes.min_annee);
@@ -90,37 +91,53 @@ map.on('load', async () => {
     communesGeoCache = await communesRes.json();
     sectionsNaf      = await sectionsRes.json();
 
-    // Couches carte
+    // Source communes avec propriétés stats (pour choroplèthe)
     map.addSource('communes', { type: 'geojson', data: communesGeoCache });
-    map.addLayer({ id: 'communes-fill', type: 'fill', source: 'communes', paint: { 'fill-color': '#1e2a3a', 'fill-opacity': 0.8 } });
-    map.addLayer({ id: 'communes-stroke', type: 'line', source: 'communes', paint: { 'line-color': '#2e4a6a', 'line-width': 0.5 } });
 
+    // Couche choroplèthe (masquée par défaut)
+    map.addLayer({
+        id: 'communes-choro', type: 'fill', source: 'communes',
+        paint: { 'fill-color': '#1e2a3a', 'fill-opacity': 0 }
+    });
+
+    // Contours communes
+    map.addLayer({
+        id: 'communes-fill', type: 'fill', source: 'communes',
+        paint: { 'fill-color': '#1e2a3a', 'fill-opacity': 0.6 }
+    });
+    map.addLayer({
+        id: 'communes-stroke', type: 'line', source: 'communes',
+        paint: { 'line-color': '#2e4a6a', 'line-width': 0.5 }
+    });
+
+    // EPCI
     map.addSource('epcis', { type: 'geojson', data: epcisGeoCache });
-    map.addLayer({ id: 'epcis-stroke', type: 'line', source: 'epcis', paint: { 'line-color': '#4a90d9', 'line-width': 2 } });
+    map.addLayer({
+        id: 'epcis-stroke', type: 'line', source: 'epcis',
+        paint: { 'line-color': '#4a90d9', 'line-width': 2 }
+    });
 
+    // Points établissements
     map.addSource('etablissements', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
         id: 'etablissements-points', type: 'circle', source: 'etablissements',
         paint: {
             'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 4, 15, 7],
             'circle-color': '#4a90d9',
-            'circle-opacity': 0.8,
+            'circle-opacity': 0.85,
             'circle-stroke-width': 0.3,
             'circle-stroke-color': '#ffffff'
         }
     });
 
-    // Popup
+    // Popup établissements
     const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '320px' });
     map.on('click', 'etablissements-points', (e) => {
         const p = e.features[0].properties;
         const etatLabel = p.etat_admin === 'A' ? '🟢 Actif' : '🔴 Fermé';
-
-        // Contexte période : créé et/ou fermé sur la période ?
-        let contexte = '';
         const dateCreation  = p.date_creation  ? p.date_creation.substring(0,10)  : null;
         const dateFermeture = p.date_fermeture ? p.date_fermeture.substring(0,10) : null;
-
+        let contexte = '';
         if (dateCreation && dateFermeture) {
             contexte = `<div class="popup-contexte">⚠️ Créé le ${dateCreation}, fermé le ${dateFermeture}</div>`;
         } else if (dateCreation && p.etat_admin === 'F') {
@@ -128,7 +145,6 @@ map.on('load', async () => {
         } else if (dateCreation) {
             contexte = `<div class="popup-contexte">🟢 Créé le ${dateCreation} — toujours actif</div>`;
         }
-
         popup.setLngLat(e.lngLat).setHTML(`
             <div class="popup-content">
                 <div class="popup-titre">${p.nom}</div>
@@ -145,15 +161,38 @@ map.on('load', async () => {
     map.on('mouseenter', 'etablissements-points', () => map.getCanvas().style.cursor = 'pointer');
     map.on('mouseleave', 'etablissements-points', () => map.getCanvas().style.cursor = '');
 
-    map.on('mousemove', 'communes-fill', (e) => {
+    // Hover communes
+    map.on('mousemove', 'communes-choro', (e) => {
         if (e.features.length > 0) {
+            const p = e.features[0].properties;
+            const solde = p.solde || 0;
+            const signe = solde >= 0 ? '+' : '';
+            showTooltip(e.lngLat, `
+                <strong>${p.nom_commune}</strong><br>
+                🟢 ${p.nb_creations || 0} créations —
+                🔴 ${p.nb_cessations || 0} cessations<br>
+                <strong>Solde : ${signe}${solde}</strong>
+            `);
+        }
+    });
+    map.on('mouseleave', 'communes-choro', hideTooltip);
+    map.on('mousemove', 'communes-fill', (e) => {
+        if (modeAffichage === 'points' && e.features.length > 0) {
             const p = e.features[0].properties;
             showTooltip(e.lngLat, `<strong>${p.nom_commune}</strong><br>${p.nom_epci}`);
         }
     });
     map.on('mouseleave', 'communes-fill', hideTooltip);
 
-    // Select EPCI
+    // Déplacement carte -> recharger points si en mode points + bbox
+    map.on('moveend', () => {
+        if (modeAffichage === 'bbox') {
+            if (moveTimer) clearTimeout(moveTimer);
+            moveTimer = setTimeout(chargerPointsBbox, 400);
+        }
+    });
+
+    // Selects
     const selectEpci = document.getElementById('filtre-epci');
     epcisGeoCache.features.forEach(f => {
         const opt = document.createElement('option');
@@ -178,7 +217,6 @@ map.on('load', async () => {
         }
     });
 
-    // Select NAF
     Object.entries(sectionsNaf).forEach(([code, libelle]) => {
         const opt = document.createElement('option');
         opt.value = code;
@@ -199,66 +237,201 @@ async function appliquerFiltres() {
     const commune = document.getElementById('filtre-commune').value;
     const naf     = document.getElementById('filtre-naf').value;
     modeColor     = document.getElementById('filtre-couleur').value;
-
-    const types = Array.from(
-        document.querySelectorAll('#filtre-evenements input:checked')
-    ).map(cb => cb.value);
-
     const periode = getParamsPeriode();
+    const types   = Array.from(document.querySelectorAll('#filtre-evenements input:checked')).map(cb => cb.value);
 
-    const paramsEtab  = new URLSearchParams();
-    const paramsStats = new URLSearchParams();
+    // Stocker les filtres courants
+    currentFiltres = {};
+    if (commune)      currentFiltres.code_commune = commune;
+    else if (epci)    currentFiltres.code_epci = epci;
+    if (naf)          currentFiltres.section_naf = naf;
+    Object.entries(periode).forEach(([k,v]) => currentFiltres[k] = v);
+    if (types.length) currentFiltres.types = types;
 
-    // Géographie
-    if (commune) {
-        paramsEtab.set('code_commune', commune);
-        paramsStats.set('code_commune', commune);
-    } else if (epci) {
-        paramsEtab.set('code_epci', epci);
-        paramsStats.set('code_epci', epci);
-    }
-
-    // NAF
-    if (naf) { paramsEtab.set('section_naf', naf); paramsStats.set('section_naf', naf); }
-
-    // Période
-    Object.entries(periode).forEach(([k, v]) => {
-        paramsEtab.set(k, v);
-        paramsStats.set(k, v);
-    });
-
-    // Types événements
-    types.forEach(t => { paramsEtab.append('types', t); paramsStats.append('types', t); });
-
-    const [etabRes, statsRes] = await Promise.all([
-        fetch(`/api/etablissements?${paramsEtab}`),
-        fetch(`/api/stats?${paramsStats}`)
-    ]);
-
-    const etabData  = await etabRes.json();
+    // Charger stats pour les graphiques
+    const statsRes  = await fetch(`/api/stats?${buildParams()}`);
     const statsData = await statsRes.json();
 
-    // Stocker les filtres courants pour le zoom dynamique
-    currentFiltres = {};
-    if (commune) currentFiltres.code_commune = commune;
-    else if (epci) currentFiltres.code_epci = epci;
-    if (naf) currentFiltres.section_naf = naf;
-    Object.entries(periode).forEach(([k,v]) => currentFiltres[k] = v);
-    types.forEach(t => {
-        if (!currentFiltres.types) currentFiltres.types = [];
-        currentFiltres.types.push(t);
-    });
+    // Compter les établissements pour décider du mode d'affichage
+    const countRes  = await fetch(`/api/count_etablissements?${buildParams()}`);
+    const countData = await countRes.json();
+    const nb        = countData.count;
 
-    // Charger selon le zoom actuel
-    await chargerSelonZoom();
+    mettreAJourIndicateur(nb);
 
-    mettreAJourStats(etabData, statsData);
+    if (nb <= SEUIL_POINTS) {
+        // Mode points directs
+        modeAffichage = 'points';
+        await chargerPointsDirects();
+    } else {
+        // Mode choroplèthe
+        modeAffichage = 'choro';
+        await afficherChoroplèthe(types);
+        // Vider les points
+        map.getSource('etablissements').setData({ type: 'FeatureCollection', features: [] });
+    }
+
+    mettreAJourStats(nb, statsData);
     mettreAJourGraphiques(statsData, periode, commune);
     recentrerCarte(epci, commune);
 
     btn.textContent = 'Appliquer';
     btn.disabled = false;
 }
+
+async function chargerPointsDirects() {
+    modeAffichage = 'points';
+    map.setPaintProperty('communes-choro', 'fill-opacity', 0);
+    map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+    map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
+
+    const res  = await fetch(`/api/etablissements?${buildParams()}&limit=2000`);
+    const data = await res.json();
+    map.getSource('etablissements').setData(data);
+    appliquerCouleurs();
+}
+
+async function chargerPointsBbox() {
+    const bounds = map.getBounds();
+    const extra  = {
+        min_lon: bounds.getWest(),
+        min_lat: bounds.getSouth(),
+        max_lon: bounds.getEast(),
+        max_lat: bounds.getNorth()
+    };
+    const params = buildParams(extra);
+    const res    = await fetch(`/api/etablissements_bbox?${params}`);
+    const data   = await res.json();
+    map.getSource('etablissements').setData(data);
+    appliquerCouleurs();
+    document.getElementById('stat-total').textContent = `${data.total.toLocaleString('fr-FR')} établissements (vue)`;
+}
+
+async function afficherChoroplèthe(types) {
+    map.setLayoutProperty('etablissements-points', 'visibility', 'none');
+    map.setPaintProperty('communes-fill', 'fill-opacity', 0);
+
+    const res            = await fetch(`/api/stats_communes?${buildParams()}`);
+    const statsParCommune = await res.json();
+
+    // Injecter les stats dans les features communes
+    const updatedFeatures = communesGeoCache.features.map(f => ({
+        ...f,
+        properties: {
+            ...f.properties,
+            nb_creations:  statsParCommune[f.properties.code_commune]?.nb_creations  || 0,
+            nb_cessations: statsParCommune[f.properties.code_commune]?.nb_cessations || 0,
+            solde:         statsParCommune[f.properties.code_commune]?.solde         || 0
+        }
+    }));
+    map.getSource('communes').setData({ ...communesGeoCache, features: updatedFeatures });
+
+    // Choisir la variable et la palette selon les types cochés
+    const onlyCreations  = types.includes('creation')  && !types.includes('cessation');
+    const onlyCessations = types.includes('cessation') && !types.includes('creation');
+
+    let colorExpr;
+    const valeurs = Object.values(statsParCommune);
+    const maxVal  = Math.max(...valeurs.map(r => Math.max(r.nb_creations, r.nb_cessations, Math.abs(r.solde))), 1);
+
+    if (onlyCreations) {
+        // Blanc → rouge foncé selon nb_creations
+        colorExpr = ['interpolate', ['linear'], ['get', 'nb_creations'],
+            0, '#f5f5f5',
+            maxVal * 0.25, '#ef9a9a',
+            maxVal * 0.5,  '#e53935',
+            maxVal,        '#7f0000'
+        ];
+    } else if (onlyCessations) {
+        // Blanc → bleu foncé selon nb_cessations
+        colorExpr = ['interpolate', ['linear'], ['get', 'nb_cessations'],
+            0, '#f5f5f5',
+            maxVal * 0.25, '#90caf9',
+            maxVal * 0.5,  '#1e88e5',
+            maxVal,        '#0d47a1'
+        ];
+    } else {
+        // Solde net : rouge (négatif) → blanc (0) → vert (positif)
+        const maxSolde = Math.max(...valeurs.map(r => Math.abs(r.solde)), 1);
+        colorExpr = ['interpolate', ['linear'], ['get', 'solde'],
+            -maxSolde, '#7f0000',
+            -maxSolde * 0.5, '#e53935',
+            0, '#f5f5f5',
+            maxSolde * 0.5, '#43a047',
+            maxSolde, '#1b5e20'
+        ];
+    }
+
+    map.setPaintProperty('communes-choro', 'fill-color', colorExpr);
+    map.setPaintProperty('communes-choro', 'fill-opacity', 0.8);
+
+    // Bouton zoom-in pour passer en points
+    mettreAJourIndicateur(null, true);
+}
+
+function mettreAJourIndicateur(nb, isChoro = false) {
+    const el = document.getElementById('zoom-info');
+    if (!el) return;
+    if (isChoro) {
+        el.textContent = '🗺️ Choroplèthe — zoomez sur une zone pour voir les points';
+        el.style.color = '#FF9800';
+    } else {
+        el.textContent = `📍 ${nb?.toLocaleString('fr-FR') || '—'} établissements — affichage points`;
+        el.style.color = '#8892a4';
+    }
+}
+
+// Détecter si on zoome suffisamment pour passer en points depuis la choroplèthe
+map.on('moveend', async () => {
+    if (modeAffichage !== 'choro') return;
+
+    const bounds = map.getBounds();
+    const extra  = {
+        min_lon: bounds.getWest(),
+        min_lat: bounds.getSouth(),
+        max_lon: bounds.getEast(),
+        max_lat: bounds.getNorth()
+    };
+    const params = buildParams(extra);
+    const res    = await fetch(`/api/count_etablissements?${params}`);
+    const data   = await res.json();
+
+    if (data.count <= SEUIL_POINTS) {
+        // La bbox visible est assez petite -> passer en points
+        modeAffichage = 'bbox';
+        map.setPaintProperty('communes-choro', 'fill-opacity', 0);
+        map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+        map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
+        await chargerPointsBbox();
+        mettreAJourIndicateur(data.count);
+    }
+});
+
+map.on('moveend', async () => {
+    if (modeAffichage !== 'bbox') return;
+    if (moveTimer) clearTimeout(moveTimer);
+    moveTimer = setTimeout(async () => {
+        const bounds = map.getBounds();
+        const extra  = {
+            min_lon: bounds.getWest(),
+            min_lat: bounds.getSouth(),
+            max_lon: bounds.getEast(),
+            max_lat: bounds.getNorth()
+        };
+        const params  = buildParams(extra);
+        const res     = await fetch(`/api/count_etablissements?${params}`);
+        const data    = await res.json();
+
+        if (data.count > SEUIL_POINTS) {
+            // On a dézoomé -> repasser en choroplèthe
+            modeAffichage = 'choro';
+            const types = currentFiltres.types || ['creation', 'cessation'];
+            await afficherChoroplèthe(Array.isArray(types) ? types : [types]);
+        } else {
+            await chargerPointsBbox();
+        }
+    }, 400);
+});
 
 function appliquerCouleurs() {
     let colorExpr;
@@ -270,14 +443,12 @@ function appliquerCouleurs() {
         colorExpr = ['match', ['get', 'section_naf'], ...cases, '#999'];
     } else if (modeColor === 'tranche_effectif') {
         colorExpr = ['match', ['get', 'tranche_effectif'],
-            'Etablissement non employeur', '#607D8B',
+            'Non employeur', '#607D8B',
             '1 ou 2 salariés', '#4CAF50', '3 à 5 salariés', '#8BC34A',
             '6 à 9 salariés', '#FFC107', '10 à 19 salariés', '#FF9800',
             '20 à 49 salariés', '#FF5722', '50 à 99 salariés', '#F44336',
             '100 à 199 salariés', '#9C27B0', '#1A237E'
         ];
-    } else if (modeColor === 'type_evenement') {
-        colorExpr = ['match', ['get', 'etat_admin'], 'A', '#4CAF50', '#F44336'];
     } else {
         colorExpr = '#4a90d9';
     }
@@ -285,13 +456,12 @@ function appliquerCouleurs() {
     mettreAJourLegende();
 }
 
-function mettreAJourStats(etabData, statsData) {
-    const total      = etabData.total;
+function mettreAJourStats(nb, statsData) {
     const creations  = statsData.total_creations;
     const cessations = statsData.total_cessations;
     const solde      = statsData.solde_periode;
 
-    document.getElementById('an-total').textContent      = total.toLocaleString('fr-FR');
+    document.getElementById('an-total').textContent      = (nb || 0).toLocaleString('fr-FR');
     document.getElementById('an-creations').textContent  = creations.toLocaleString('fr-FR');
     document.getElementById('an-cessations').textContent = cessations.toLocaleString('fr-FR');
 
@@ -299,39 +469,29 @@ function mettreAJourStats(etabData, statsData) {
     soldeEl.textContent = (solde >= 0 ? '+' : '') + solde.toLocaleString('fr-FR');
     soldeEl.className   = 'stat-valeur ' + (solde >= 0 ? 'vert' : 'rouge');
 
-    const actifs = etabData.features.filter(f => f.properties.etat_admin === 'A').length;
-    const fermes = etabData.features.filter(f => f.properties.etat_admin === 'F').length;
-    document.getElementById('stat-total').textContent  = `${total.toLocaleString('fr-FR')} établissements`;
-    document.getElementById('stat-actifs').textContent = `${actifs.toLocaleString('fr-FR')} actifs`;
-    document.getElementById('stat-fermes').textContent = `${fermes.toLocaleString('fr-FR')} fermés`;
+    document.getElementById('stat-total').textContent  = `${(nb || 0).toLocaleString('fr-FR')} établissements`;
+    document.getElementById('stat-actifs').textContent  = `${creations.toLocaleString('fr-FR')} créations`;
+    document.getElementById('stat-fermes').textContent  = `${cessations.toLocaleString('fr-FR')} cessations`;
 }
 
 function mettreAJourGraphiques(statsData, periode, filtreCommune) {
     const mode = periode.mode;
-
-    // Construire les labels selon le mode
-    let labels = [];
-    let creationsData = [];
-    let cessationsData = [];
+    let labels = [], creationsData = [], cessationsData = [];
 
     if (mode === 'trimestre') {
-        // Grouper par annee+trimestre
         const map_data = {};
         statsData.evolution.forEach(r => {
             const key = `T${r.trimestre} ${r.annee}`;
             if (!map_data[key]) map_data[key] = { creation: 0, cessation: 0 };
             map_data[key][r.type_evenement] = (map_data[key][r.type_evenement] || 0) + r.nb;
         });
-        labels = Object.keys(map_data);
+        labels         = Object.keys(map_data);
         creationsData  = labels.map(k => map_data[k].creation  || 0);
         cessationsData = labels.map(k => map_data[k].cessation || 0);
         document.getElementById('titre-evolution').textContent = 'Créations / Cessations par trimestre';
     } else {
-        // Mode annuel
-        const anneeDebut = parseInt(periode.annee_debut);
-        const anneeFin   = parseInt(periode.annee_fin);
-        for (let a = anneeDebut; a <= anneeFin; a++) labels.push(a);
-
+        const ad = parseInt(periode.annee_debut), af = parseInt(periode.annee_fin);
+        for (let a = ad; a <= af; a++) labels.push(a);
         const cMap = {}, csMap = {};
         labels.forEach(a => { cMap[a] = 0; csMap[a] = 0; });
         statsData.evolution.forEach(r => {
@@ -408,11 +568,34 @@ function mettreAJourGraphiques(statsData, periode, filtreCommune) {
 
 function mettreAJourLegende() {
     const legende = document.getElementById('legende');
-    const today = new Date();
+    const today   = new Date();
     const dateStr = today.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     legende.innerHTML = '';
 
-    if (modeColor === 'etat_admin' || modeColor === 'type_evenement') {
+    if (modeAffichage === 'choro') {
+        const types = Array.isArray(currentFiltres.types) ? currentFiltres.types : [currentFiltres.types].filter(Boolean);
+        const onlyC  = types.includes('creation')  && !types.includes('cessation');
+        const onlyCs = types.includes('cessation') && !types.includes('creation');
+        if (onlyC) {
+            legende.innerHTML += `<div class="leg-date">Créations — dégradé intensité</div>`;
+            [['#f5f5f5','Peu'],['#e53935','Moyen'],['#7f0000','Beaucoup']].forEach(([c,l]) => {
+                legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c};border:1px solid #444"></span>${l}</div>`;
+            });
+        } else if (onlyCs) {
+            legende.innerHTML += `<div class="leg-date">Cessations — dégradé intensité</div>`;
+            [['#f5f5f5','Peu'],['#1e88e5','Moyen'],['#0d47a1','Beaucoup']].forEach(([c,l]) => {
+                legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c};border:1px solid #444"></span>${l}</div>`;
+            });
+        } else {
+            legende.innerHTML += `<div class="leg-date">Solde net (créations - cessations)</div>`;
+            [['#7f0000','Très négatif'],['#e53935','Négatif'],['#f5f5f5','Neutre'],['#43a047','Positif'],['#1b5e20','Très positif']].forEach(([c,l]) => {
+                legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c};border:1px solid #444"></span>${l}</div>`;
+            });
+        }
+        return;
+    }
+
+    if (modeColor === 'etat_admin') {
         legende.innerHTML += `<div class="leg-date">État au ${dateStr}</div>`;
         [['#4CAF50','Actif'],['#F44336','Fermé — créé sur la période']].forEach(([c,l]) => {
             legende.innerHTML += `<div class="leg-item"><span class="leg-dot" style="background:${c}"></span>${l}</div>`;
@@ -435,11 +618,8 @@ function mettreAJourLegende() {
 
 function getBoundsFromGeometry(geometry) {
     let coords = [];
-    if (geometry.type === 'Polygon') {
-        coords = geometry.coordinates[0];
-    } else if (geometry.type === 'MultiPolygon') {
-        geometry.coordinates.forEach(poly => poly[0].forEach(c => coords.push(c)));
-    }
+    if (geometry.type === 'Polygon') coords = geometry.coordinates[0];
+    else if (geometry.type === 'MultiPolygon') geometry.coordinates.forEach(p => p[0].forEach(c => coords.push(c)));
     if (!coords.length) return null;
     const lons = coords.map(c => c[0]);
     const lats = coords.map(c => c[1]);
@@ -468,147 +648,3 @@ function showTooltip(lngLat, html) {
     tooltip.style.top  = (point.y - 10) + 'px';
 }
 function hideTooltip() { tooltip.style.display = 'none'; }
-
-// --- GESTION NIVEAUX DE ZOOM ---
-
-function getZoom() { return map.getZoom(); }
-
-async function chargerSelonZoom() {
-    const zoom = getZoom();
-
-    if (zoom < ZOOM_CHORO) {
-        // Mode choroplèthe — masquer les points
-        map.setLayoutProperty('etablissements-points', 'visibility', 'none');
-        await mettreAJourChoroplèthe();
-    } else {
-        // Mode points bbox
-        map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
-        map.setPaintProperty('communes-choro', 'fill-opacity', 0);
-        await chargerPointsBbox();
-    }
-}
-
-async function mettreAJourChoroplèthe() {
-    const params = new URLSearchParams(currentFiltres);
-    const res = await fetch(`/api/stats_communes?${params}`);
-    const statsParCommune = await res.json();
-
-    // Calculer min/max pour l'échelle de couleur
-    const valeurs = Object.values(statsParCommune).map(r => r.solde);
-    if (!valeurs.length) return;
-
-    const max = Math.max(...valeurs.map(Math.abs));
-
-    // Construire l'expression de couleur MapLibre
-    // On colorie par solde net : rouge si négatif, vert si positif
-    const colorStops = [
-        -max, '#b71c1c',
-        -max/2, '#ef5350',
-        0, '#37474f',
-        max/2, '#66bb6a',
-        max, '#1b5e20'
-    ];
-
-    // Mettre à jour les propriétés des features communes avec les stats
-    const updatedCommunes = {
-        ...communesGeoCache,
-        features: communesGeoCache.features.map(f => {
-            const stats = statsParCommune[f.properties.code_commune];
-            return {
-                ...f,
-                properties: {
-                    ...f.properties,
-                    solde:        stats ? stats.solde        : 0,
-                    nb_creations: stats ? stats.nb_creations : 0,
-                    nb_cessations: stats ? stats.nb_cessations : 0
-                }
-            };
-        })
-    };
-
-    map.getSource('communes').setData(updatedCommunes);
-
-    map.setPaintProperty('communes-choro', 'fill-color', [
-        'interpolate', ['linear'], ['get', 'solde'],
-        -max, '#b71c1c',
-        -max * 0.5, '#ef5350',
-        0, '#37474f',
-        max * 0.5, '#66bb6a',
-        max, '#1b5e20'
-    ]);
-    map.setPaintProperty('communes-choro', 'fill-opacity', 0.75);
-
-    // Tooltip enrichi pour la choroplèthe
-    map.off('mousemove', 'communes-fill', onHoverCommune);
-    map.on('mousemove', 'communes-fill', onHoverCommuneChoro);
-}
-
-function onHoverCommune(e) {
-    if (e.features.length > 0) {
-        const p = e.features[0].properties;
-        showTooltip(e.lngLat, `<strong>${p.nom_commune}</strong><br>${p.nom_epci}`);
-    }
-}
-
-function onHoverCommuneChoro(e) {
-    if (e.features.length > 0) {
-        const p = e.features[0].properties;
-        const solde = p.solde || 0;
-        const signe = solde >= 0 ? '+' : '';
-        showTooltip(e.lngLat, `
-            <strong>${p.nom_commune}</strong><br>
-            🟢 ${p.nb_creations || 0} créations<br>
-            🔴 ${p.nb_cessations || 0} cessations<br>
-            <strong>Solde : ${signe}${solde}</strong>
-        `);
-    }
-}
-
-async function chargerPointsBbox() {
-    const bounds = map.getBounds();
-    const params = new URLSearchParams({
-        ...currentFiltres,
-        min_lon: bounds.getWest(),
-        min_lat: bounds.getSouth(),
-        max_lon: bounds.getEast(),
-        max_lat: bounds.getNorth()
-    });
-
-    // Retirer les params non bbox
-    params.delete('code_epci');
-    params.delete('code_commune');
-
-    // Garder le filtre géo si commune sélectionnée
-    if (currentFiltres.code_commune) params.set('code_commune', currentFiltres.code_commune);
-
-    const res = await fetch(`/api/etablissements_bbox?${params}`);
-    const data = await res.json();
-    map.getSource('etablissements').setData(data);
-    appliquerCouleurs();
-
-    // Mettre à jour compteur header
-    document.getElementById('stat-total').textContent = `${data.total.toLocaleString('fr-FR')} établissements (vue)`;
-}
-
-// Écouter les changements de zoom et de déplacement
-map.on('zoomend', () => {
-    if (Object.keys(currentFiltres).length > 0) chargerSelonZoom();
-});
-
-map.on('moveend', () => {
-    if (getZoom() >= ZOOM_CHORO && Object.keys(currentFiltres).length > 0) {
-        if (zoomTimer) clearTimeout(zoomTimer);
-        zoomTimer = setTimeout(chargerPointsBbox, 300);
-    }
-});
-
-// Indicateur zoom
-function mettreAJourIndicateurZoom() {
-    const zoom = Math.round(getZoom() * 10) / 10;
-    const mode = zoom < ZOOM_CHORO ? 'Choroplèthe communes' : 'Points établissements';
-    const el = document.getElementById('zoom-info');
-    if (el) el.textContent = `Zoom : ${zoom} | ${mode}`;
-}
-
-map.on('zoom', mettreAJourIndicateurZoom);
-map.on('load', mettreAJourIndicateurZoom);
