@@ -186,3 +186,27 @@ canvas { max-width: 100%; }
     z-index: 10;
     pointer-events: none;
 }
+
+/* Toggle fond de carte */
+#fond-toggle {
+    position: absolute;
+    bottom: 80px;
+    left: 270px;
+    display: flex;
+    gap: 4px;
+    z-index: 10;
+}
+
+.fond-btn {
+    background: #1a1f2e;
+    border: 1px solid #2e3650;
+    color: #8892a4;
+    font-size: 0.72rem;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.fond-btn:hover { background: #242938; color: var(--text); }
+.fond-btn.active { background: var(--accent); color: white; border-color: var(--accent); }

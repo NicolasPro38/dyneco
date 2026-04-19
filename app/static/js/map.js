@@ -14,7 +14,7 @@ const LABELS_NAF = {
     'S':'Autres services','T':'Ménages','U':'Extra-territorial'
 };
 
-const SEUIL_POINTS = 2000; // en dessous -> points directs, au dessus -> choroplèthe
+const SEUIL_POINTS = 8000; // en dessous -> points directs, au dessus -> choroplèthe
 
 let modeColor    = 'etat_admin';
 let modePeriode  = 'annee';
@@ -184,13 +184,7 @@ map.on('load', async () => {
     });
     map.on('mouseleave', 'communes-fill', hideTooltip);
 
-    // Déplacement carte -> recharger points si en mode points + bbox
-    map.on('moveend', () => {
-        if (modeAffichage === 'bbox') {
-            if (moveTimer) clearTimeout(moveTimer);
-            moveTimer = setTimeout(chargerPointsBbox, 400);
-        }
-    });
+    // Le moveend est géré par le listener global en bas du fichier
 
     // Selects
     const selectEpci = document.getElementById('filtre-epci');
@@ -232,6 +226,7 @@ async function appliquerFiltres() {
     const btn = document.getElementById('btn-appliquer');
     btn.textContent = 'Chargement...';
     btn.disabled = true;
+    try {
 
     const epci    = document.getElementById('filtre-epci').value;
     const commune = document.getElementById('filtre-commune').value;
@@ -274,8 +269,12 @@ async function appliquerFiltres() {
     mettreAJourGraphiques(statsData, periode, commune);
     recentrerCarte(epci, commune);
 
-    btn.textContent = 'Appliquer';
-    btn.disabled = false;
+    } catch(e) {
+        console.error('Erreur appliquerFiltres:', e);
+    } finally {
+        btn.textContent = 'Appliquer';
+        btn.disabled = false;
+    }
 }
 
 async function chargerPointsDirects() {
@@ -292,12 +291,16 @@ async function chargerPointsDirects() {
 
 async function chargerPointsBbox() {
     const bounds = map.getBounds();
+    // On garde le filtre géo (epci/commune) + on ajoute la bbox
+    // La bbox sert uniquement à limiter le nb de points chargés
+    // mais on reste dans le périmètre du filtre géo
     const extra  = {
         min_lon: bounds.getWest(),
         min_lat: bounds.getSouth(),
         max_lon: bounds.getEast(),
         max_lat: bounds.getNorth()
     };
+    // buildParams inclut déjà code_epci ou code_commune depuis currentFiltres
     const params = buildParams(extra);
     const res    = await fetch(`/api/etablissements_bbox?${params}`);
     const data   = await res.json();
@@ -383,27 +386,30 @@ function mettreAJourIndicateur(nb, isChoro = false) {
 // Listener unique pour gérer la bascule choro <-> points selon zoom
 map.on('moveend', async () => {
     if (Object.keys(currentFiltres).length === 0) return;
+    if (modeAffichage === 'points') return; // points directs -> pas de bascule
     if (moveTimer) clearTimeout(moveTimer);
 
     moveTimer = setTimeout(async () => {
         const bounds = map.getBounds();
-        const extra  = {
+        const bboxOnly = new URLSearchParams({
             min_lon: bounds.getWest(),
             min_lat: bounds.getSouth(),
             max_lon: bounds.getEast(),
-            max_lat: bounds.getNorth()
-        };
-        // Pour le count bbox, on enlève le filtre commune
-        // (on veut savoir combien il y a dans la vue, pas dans la commune)
-        const paramsCount = buildParams(extra);
-        paramsCount.delete('code_commune');
-        console.log('moveend - mode:', modeAffichage, 'count params:', paramsCount.toString());
-        const res    = await fetch(`/api/count_etablissements?${paramsCount}`);
-        const data   = await res.json();
-        console.log('count bbox:', data.count, 'seuil:', SEUIL_POINTS);
+            max_lat: bounds.getNorth(),
+            mode: currentFiltres.mode || 'annee',
+            annee_debut: currentFiltres.annee_debut || '2020',
+            annee_fin: currentFiltres.annee_fin || '2025'
+        });
+        if (currentFiltres.types) {
+            const t = Array.isArray(currentFiltres.types) ? currentFiltres.types : [currentFiltres.types];
+            t.forEach(v => bboxOnly.append('types', v));
+        }
+        // Count dans la bbox visible SANS filtre geo (pour décider choro vs points)
+        const res  = await fetch(`/api/count_etablissements?${bboxOnly}`);
+        const data = await res.json();
+        console.log('moveend:', modeAffichage, '| count bbox:', data.count, '| seuil:', SEUIL_POINTS);
 
         if (modeAffichage === 'choro' && data.count <= SEUIL_POINTS) {
-            // Assez zoomé -> passer en points bbox
             modeAffichage = 'bbox';
             map.setPaintProperty('communes-choro', 'fill-opacity', 0);
             map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
@@ -412,14 +418,12 @@ map.on('moveend', async () => {
             mettreAJourIndicateur(data.count);
 
         } else if (modeAffichage === 'bbox' && data.count > SEUIL_POINTS) {
-            // Dézoomé -> repasser en choroplèthe
             modeAffichage = 'choro';
             map.setLayoutProperty('etablissements-points', 'visibility', 'none');
             const types = currentFiltres.types || ['creation', 'cessation'];
             await afficherChoroplèthe(Array.isArray(types) ? types : [types]);
 
         } else if (modeAffichage === 'bbox') {
-            // Toujours en mode bbox -> recharger la bbox
             await chargerPointsBbox();
         }
     }, 400);
@@ -644,3 +648,126 @@ function showTooltip(lngLat, html) {
     tooltip.style.top  = (point.y - 10) + 'px';
 }
 function hideTooltip() { tooltip.style.display = 'none'; }
+
+// --- FOND DE CARTE ---
+let fondActuel = 'aucun';
+let masqueZoneCharge = false;
+
+async function initFondCarte() {
+    // Source IGN Plan
+    map.addSource('ign-plan', {
+        type: 'raster',
+        tiles: ['https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'],
+        tileSize: 256,
+        attribution: '© IGN'
+    });
+
+    // Source IGN Orthophoto
+    map.addSource('ign-ortho', {
+        type: 'raster',
+        tiles: ['https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}'],
+        tileSize: 256,
+        attribution: '© IGN'
+    });
+
+    // Couches raster (masquées par défaut)
+    map.addLayer({
+        id: 'fond-plan',
+        type: 'raster',
+        source: 'ign-plan',
+        layout: { visibility: 'none' },
+        paint: { 'raster-opacity': 1 }
+    }, 'communes-choro'); // insérer sous les couches vecteur
+
+    map.addLayer({
+        id: 'fond-ortho',
+        type: 'raster',
+        source: 'ign-ortho',
+        layout: { visibility: 'none' },
+        paint: { 'raster-opacity': 1 }
+    }, 'communes-choro');
+
+    // Masque hors zone — fond sombre sur tout ce qui est hors EPCI
+    await chargerMasqueZone();
+}
+
+async function chargerMasqueZone() {
+    if (masqueZoneCharge) return;
+
+    // Récupérer les géométries EPCI pour construire le masque
+    const res  = await fetch('/api/epcis');
+    const data = await res.json();
+
+    // Construire un polygone "monde entier moins nos EPCI"
+    const monde = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
+
+    // Fusionner toutes les géométries EPCI en un seul multipolygone
+    const trous = [];
+    data.features.forEach(f => {
+        const geom = f.geometry;
+        if (geom.type === 'Polygon') {
+            trous.push(geom.coordinates[0]);
+        } else if (geom.type === 'MultiPolygon') {
+            geom.coordinates.forEach(poly => trous.push(poly[0]));
+        }
+    });
+
+    const masqueGeojson = {
+        type: 'FeatureCollection',
+        features: [{
+            type: 'Feature',
+            geometry: {
+                type: 'Polygon',
+                coordinates: [monde, ...trous]
+            },
+            properties: {}
+        }]
+    };
+
+    map.addSource('masque-zone', { type: 'geojson', data: masqueGeojson });
+    map.addLayer({
+        id: 'masque-zone-fill',
+        type: 'fill',
+        source: 'masque-zone',
+        paint: {
+            'fill-color': '#0f1118',
+            'fill-opacity': 1
+        }
+    }); // au-dessus de tout pour masquer hors zone
+
+    masqueZoneCharge = true;
+}
+
+function setFond(type) {
+    fondActuel = type;
+
+    // Mettre à jour les boutons
+    document.querySelectorAll('.fond-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`btn-fond-${type}`).classList.add('active');
+
+    // Afficher/masquer les couches
+    map.setLayoutProperty('fond-plan',  'visibility', type === 'plan'  ? 'visible' : 'none');
+    map.setLayoutProperty('fond-ortho', 'visibility', type === 'ortho' ? 'visible' : 'none');
+
+    // Adapter l'opacité du fond sombre selon le fond choisi
+    if (type === 'aucun') {
+        map.setPaintProperty('communes-fill', 'fill-color', '#1e2a3a');
+        map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+        map.setPaintProperty('background', 'background-color', '#0f1118');
+    } else if (type === 'ortho') {
+        // Orthophoto : communes transparentes pour voir le fond
+        map.setPaintProperty('communes-fill', 'fill-opacity', 0);
+        map.setPaintProperty('background', 'background-color', '#0f1118');
+    } else {
+        // Plan IGN : communes semi-transparentes
+        map.setPaintProperty('communes-fill', 'fill-color', '#1e2a3a');
+        map.setPaintProperty('communes-fill', 'fill-opacity', 0.1);
+        map.setPaintProperty('background', 'background-color', '#0f1118');
+    }
+}
+
+// Initialiser après le chargement de la carte
+map.on('load', () => {
+    // Appelé après le load principal
+    setTimeout(initFondCarte, 100);
+});

@@ -118,7 +118,12 @@
     </aside>
 
     <div id="map"></div>
-    <div id="zoom-info">Zoom : — | Mode : —</div>
+    <div id="zoom-info"></div>
+    <div id="fond-toggle">
+        <button class="fond-btn active" id="btn-fond-aucun" onclick="setFond('aucun')">Sombre</button>
+        <button class="fond-btn" id="btn-fond-plan" onclick="setFond('plan')">IGN Plan</button>
+        <button class="fond-btn" id="btn-fond-ortho" onclick="setFond('ortho')">Orthophoto</button>
+    </div>
 
     <aside id="panel-analyses">
         <h2>Analyses</h2>

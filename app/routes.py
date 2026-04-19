@@ -102,77 +102,33 @@ def api_bornes_periode():
     return jsonify(dict(r))
 
 def build_periode_condition(params_list, prefix='ev'):
-    """
-    Construit la condition temporelle selon le mode (annuel ou trimestriel).
-    Retourne une condition SQL et ajoute les params nécessaires.
-    """
     mode        = request.args.get('mode', 'annee')
     annee_debut = request.args.get('annee_debut', '2020')
     annee_fin   = request.args.get('annee_fin', '2025')
     trim_debut  = request.args.get('trim_debut', '1')
     trim_fin    = request.args.get('trim_fin', '4')
-
     if mode == 'trimestre':
-        # Convertir en numéro de trimestre absolu pour comparaison
-        # trimestre absolu = annee * 4 + trimestre
-        params_list += [
-            int(annee_debut) * 4 + int(trim_debut),
-            int(annee_fin) * 4 + int(trim_fin)
-        ]
+        params_list += [int(annee_debut) * 4 + int(trim_debut), int(annee_fin) * 4 + int(trim_fin)]
         return f"({prefix}.annee * 4 + {prefix}.trimestre) BETWEEN %s AND %s"
     else:
         params_list += [int(annee_debut), int(annee_fin)]
         return f"{prefix}.annee BETWEEN %s AND %s"
-
-def build_date_condition(params_list):
-    """Condition sur date_creation des établissements"""
-    mode        = request.args.get('mode', 'annee')
-    annee_debut = request.args.get('annee_debut', '2020')
-    annee_fin   = request.args.get('annee_fin', '2025')
-    trim_debut  = request.args.get('trim_debut', '1')
-    trim_fin    = request.args.get('trim_fin', '4')
-
-    # Convertir trimestre en mois
-    mois_debut = {1: '01', 2: '04', 3: '07', 4: '10'}
-    mois_fin   = {1: '03', 2: '06', 3: '09', 4: '12'}
-
-    if mode == 'trimestre':
-        date_debut = f"{annee_debut}-{mois_debut[int(trim_debut)]}-01"
-        date_fin   = f"{annee_fin}-{mois_fin[int(trim_fin)]}-31"
-    else:
-        date_debut = f"{annee_debut}-01-01"
-        date_fin   = f"{annee_fin}-12-31"
-
-    params_list += [date_debut, date_fin]
-    return "e.date_creation BETWEEN %s AND %s"
 
 def build_geo_filter(params_list):
     conditions = []
     code_commune = request.args.get('code_commune', '')
     code_epci    = request.args.get('code_epci', '')
     section_naf  = request.args.get('section_naf', '')
-
     if code_commune:
         conditions.append("e.code_commune = %s")
         params_list.append(code_commune)
     elif code_epci:
         conditions.append("c.code_epci = %s")
         params_list.append(code_epci)
-
     if section_naf:
         conditions.append("e.section_naf = %s")
         params_list.append(section_naf)
-
     return conditions
-
-def build_type_filter(params_list, prefix='ev'):
-    """Filtre sur les types d'événements cochés"""
-    types = request.args.getlist('types')
-    if not types:
-        return None
-    placeholders = ','.join(['%s'] * len(types))
-    params_list += types
-    return f"{prefix}.type_evenement IN ({placeholders})"
 
 @main.route('/api/etablissements')
 def api_etablissements():
@@ -181,40 +137,29 @@ def api_etablissements():
 
     params = []
     conditions = ["e.geom IS NOT NULL"]
-
-    # Filtre géographique
     conditions += build_geo_filter(params)
 
-    # Filtre type événement + période combinés
-    # On filtre les établissements qui ont eu l'un des événements cochés sur la période
-    types = request.args.getlist('types')
-    if not types:
-        types = ['creation', 'cessation']
-
+    types = request.args.getlist('types') or ['creation', 'cessation']
     periode_cond_params = []
     periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
     placeholders = ','.join(['%s'] * len(types))
-    params_types = periode_cond_params + types
     conditions.append(f"""
         e.siret IN (
-            SELECT DISTINCT ev.siret
-            FROM evenements_etablissements ev
+            SELECT DISTINCT ev.siret FROM evenements_etablissements ev
             WHERE {periode_cond}
             AND ev.type_evenement IN ({placeholders})
         )
     """)
-    params += params_types
+    params += periode_cond_params + types
 
     where = " AND ".join(conditions)
-
     cur.execute(f"""
-        SELECT
-            e.siret, e.nom, e.adresse,
-            e.code_naf, e.libelle_naf, e.section_naf,
-            e.tranche_effectif, e.etat_admin,
-            e.date_creation, e.date_fermeture, e.est_siege,
-            c.nom_commune, c.code_commune, c.code_epci, ep.nom_epci,
-            ST_AsGeoJSON(e.geom)::json AS geometry
+        SELECT e.siret, e.nom, e.adresse,
+               e.code_naf, e.libelle_naf, e.section_naf,
+               e.tranche_effectif, e.etat_admin,
+               e.date_creation, e.date_fermeture, e.est_siege,
+               c.nom_commune, c.code_commune, c.code_epci, ep.nom_epci,
+               ST_AsGeoJSON(e.geom)::json AS geometry
         FROM etablissements e
         JOIN communes c ON e.code_commune = c.code_commune
         JOIN epci ep ON c.code_epci = ep.code_epci
@@ -229,29 +174,19 @@ def api_etablissements():
     features = [{
         "type": "Feature",
         "properties": {
-            "siret":            r['siret'],
-            "nom":              r['nom'],
-            "adresse":          r['adresse'],
-            "code_naf":         r['code_naf'],
-            "libelle_naf":      r['libelle_naf'],
-            "section_naf":      r['section_naf'],
-            "tranche_effectif": r['tranche_effectif'],
-            "etat_admin":       r['etat_admin'],
-            "date_creation":    str(r['date_creation']) if r['date_creation'] else None,
-            "date_fermeture":   str(r['date_fermeture']) if r['date_fermeture'] else None,
-            "est_siege":        r['est_siege'],
-            "nom_commune":      r['nom_commune'],
-            "code_commune":     r['code_commune'],
-            "nom_epci":         r['nom_epci']
+            "siret": r['siret'], "nom": r['nom'], "adresse": r['adresse'],
+            "code_naf": r['code_naf'], "libelle_naf": r['libelle_naf'],
+            "section_naf": r['section_naf'], "tranche_effectif": r['tranche_effectif'],
+            "etat_admin": r['etat_admin'],
+            "date_creation": str(r['date_creation']) if r['date_creation'] else None,
+            "date_fermeture": str(r['date_fermeture']) if r['date_fermeture'] else None,
+            "est_siege": r['est_siege'], "nom_commune": r['nom_commune'],
+            "code_commune": r['code_commune'], "nom_epci": r['nom_epci']
         },
         "geometry": r['geometry']
     } for r in rows]
 
-    return jsonify({
-        "type": "FeatureCollection",
-        "features": features,
-        "total": len(features)
-    })
+    return jsonify({"type": "FeatureCollection", "features": features, "total": len(features)})
 
 @main.route('/api/stats')
 def api_stats():
@@ -266,32 +201,19 @@ def api_stats():
 
     # --- Évolution ---
     params_evo = []
-    cond_evo = []
-
-    periode_cond = build_periode_condition(params_evo, prefix='ev')
-    cond_evo.append(periode_cond)
-
+    cond_evo   = [build_periode_condition(params_evo, prefix='ev')]
     if code_commune:
-        cond_evo.append("e.code_commune = %s")
-        params_evo.append(code_commune)
+        cond_evo.append("e.code_commune = %s"); params_evo.append(code_commune)
     elif code_epci:
-        cond_evo.append("c.code_epci = %s")
-        params_evo.append(code_epci)
+        cond_evo.append("c.code_epci = %s"); params_evo.append(code_epci)
     if section_naf:
-        cond_evo.append("e.section_naf = %s")
-        params_evo.append(section_naf)
-
-    # Filtre types
+        cond_evo.append("e.section_naf = %s"); params_evo.append(section_naf)
     placeholders = ','.join(['%s'] * len(types))
     cond_evo.append(f"ev.type_evenement IN ({placeholders})")
     params_evo += types
 
-    if mode == 'trimestre':
-        group_select = "ev.annee, ev.trimestre"
-        order_by     = "ev.annee, ev.trimestre"
-    else:
-        group_select = "ev.annee"
-        order_by     = "ev.annee"
+    group_select = "ev.annee, ev.trimestre" if mode == 'trimestre' else "ev.annee"
+    order_by     = group_select
 
     cur.execute(f"""
         SELECT {group_select}, ev.type_evenement, COUNT(*) as nb
@@ -331,13 +253,11 @@ def api_stats():
     top_communes = []
     if not code_commune and 'creation' in types:
         params_top = []
-        cond_top   = [build_periode_condition(params_top, prefix='ev'),
-                      "ev.type_evenement = 'creation'"]
+        cond_top   = [build_periode_condition(params_top, prefix='ev'), "ev.type_evenement = 'creation'"]
         if code_epci:
             cond_top.append("c.code_epci = %s"); params_top.append(code_epci)
         if section_naf:
             cond_top.append("e.section_naf = %s"); params_top.append(section_naf)
-
         cur.execute(f"""
             SELECT c.nom_commune, COUNT(*) as nb_creations
             FROM evenements_etablissements ev
@@ -349,24 +269,20 @@ def api_stats():
         """, params_top)
         top_communes = [dict(r) for r in cur.fetchall()]
 
-    cur.close()
-    conn.close()
-
-    # Actifs et fermés actuels dans la zone/période
+    # --- Actifs / Fermés sur la période ---
     params_etat = []
-    cond_etat_base = []
+    cond_etat   = []
     if code_commune:
-        cond_etat_base.append("e.code_commune = %s"); params_etat.append(code_commune)
+        cond_etat.append("e.code_commune = %s"); params_etat.append(code_commune)
     elif code_epci:
-        cond_etat_base.append("c.code_epci = %s"); params_etat.append(code_epci)
+        cond_etat.append("c.code_epci = %s"); params_etat.append(code_epci)
     if section_naf:
-        cond_etat_base.append("e.section_naf = %s"); params_etat.append(section_naf)
+        cond_etat.append("e.section_naf = %s"); params_etat.append(section_naf)
 
-    # Filtrer sur les établissements ayant eu un événement sur la période
     periode_cond_etat_params = []
     periode_cond_etat = build_periode_condition(periode_cond_etat_params, prefix='ev')
     placeholders_etat = ','.join(['%s'] * len(types))
-    cond_etat_base.append(f"""
+    cond_etat.append(f"""
         e.siret IN (
             SELECT DISTINCT ev.siret FROM evenements_etablissements ev
             WHERE {periode_cond_etat}
@@ -374,8 +290,7 @@ def api_stats():
         )
     """)
     params_etat += periode_cond_etat_params + types
-
-    where_etat = " AND ".join(cond_etat_base) if cond_etat_base else "1=1"
+    where_etat = " AND ".join(cond_etat) if cond_etat else "1=1"
 
     cur.execute(f"""
         SELECT
@@ -398,8 +313,8 @@ def api_stats():
         "total_creations":  total_creations,
         "total_cessations": total_cessations,
         "mode":             mode,
-        "nb_actifs":        etat_row['nb_actifs']  if etat_row else 0,
-        "nb_fermes":        etat_row['nb_fermes']  if etat_row else 0
+        "nb_actifs":        etat_row['nb_actifs'] if etat_row else 0,
+        "nb_fermes":        etat_row['nb_fermes'] if etat_row else 0
     })
 
 @main.route('/api/sections_naf')
@@ -431,7 +346,6 @@ def api_sections_naf():
 
 @main.route('/api/stats_communes')
 def api_stats_communes():
-    """Agrégats par commune pour la choroplèthe"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -441,31 +355,22 @@ def api_stats_communes():
     types        = request.args.getlist('types') or ['creation', 'cessation']
 
     params = []
-    cond = []
-
-    periode_cond = build_periode_condition(params, prefix='ev')
-    cond.append(periode_cond)
-
+    cond   = [build_periode_condition(params, prefix='ev')]
     placeholders = ','.join(['%s'] * len(types))
     cond.append(f"ev.type_evenement IN ({placeholders})")
     params += types
 
     if code_commune:
-        cond.append("e.code_commune = %s")
-        params.append(code_commune)
+        cond.append("e.code_commune = %s"); params.append(code_commune)
     elif code_epci:
-        cond.append("c.code_epci = %s")
-        params.append(code_epci)
-
+        cond.append("c.code_epci = %s"); params.append(code_epci)
     if section_naf:
-        cond.append("e.section_naf = %s")
-        params.append(section_naf)
+        cond.append("e.section_naf = %s"); params.append(section_naf)
 
     cur.execute(f"""
         SELECT
-            e.code_commune,
-            c.nom_commune,
-            COUNT(*) FILTER (WHERE ev.type_evenement = 'creation') as nb_creations,
+            e.code_commune, c.nom_commune,
+            COUNT(*) FILTER (WHERE ev.type_evenement = 'creation')  as nb_creations,
             COUNT(*) FILTER (WHERE ev.type_evenement = 'cessation') as nb_cessations,
             COUNT(*) FILTER (WHERE ev.type_evenement = 'creation') -
             COUNT(*) FILTER (WHERE ev.type_evenement = 'cessation') as solde
@@ -479,12 +384,10 @@ def api_stats_communes():
     rows = cur.fetchall()
     cur.close()
     conn.close()
-
     return jsonify({r['code_commune']: dict(r) for r in rows})
 
 @main.route('/api/etablissements_bbox')
 def api_etablissements_bbox():
-    """Établissements dans une bbox visible — pour zoom élevé"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
@@ -496,23 +399,28 @@ def api_etablissements_bbox():
     except (TypeError, ValueError):
         return jsonify({'error': 'bbox invalide'}), 400
 
-    types   = request.args.getlist('types') or ['creation', 'cessation']
-    section_naf = request.args.get('section_naf', '')
+    types        = request.args.getlist('types') or ['creation', 'cessation']
+    section_naf  = request.args.get('section_naf', '')
+    code_epci    = request.args.get('code_epci', '')
+    code_commune = request.args.get('code_commune', '')
 
-    params = []
-    conditions = ["""
-        e.geom IS NOT NULL AND
-        e.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)
-    """]
-    params += [min_lon, min_lat, max_lon, max_lat]
+    params     = [min_lon, min_lat, max_lon, max_lat]
+    conditions = ["e.geom IS NOT NULL AND e.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)"]
+
+    # Filtre géographique — on reste dans le périmètre sélectionné
+    if code_commune:
+        conditions.append("e.code_commune = %s")
+        params.append(code_commune)
+    elif code_epci:
+        conditions.append("c.code_epci = %s")
+        params.append(code_epci)
 
     periode_cond_params = []
     periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
     placeholders = ','.join(['%s'] * len(types))
     conditions.append(f"""
         e.siret IN (
-            SELECT DISTINCT ev.siret
-            FROM evenements_etablissements ev
+            SELECT DISTINCT ev.siret FROM evenements_etablissements ev
             WHERE {periode_cond}
             AND ev.type_evenement IN ({placeholders})
         )
@@ -520,24 +428,21 @@ def api_etablissements_bbox():
     params += periode_cond_params + types
 
     if section_naf:
-        conditions.append("e.section_naf = %s")
-        params.append(section_naf)
+        conditions.append("e.section_naf = %s"); params.append(section_naf)
 
     where = " AND ".join(conditions)
-
     cur.execute(f"""
-        SELECT
-            e.siret, e.nom, e.adresse,
-            e.code_naf, e.libelle_naf, e.section_naf,
-            e.tranche_effectif, e.etat_admin,
-            e.date_creation, e.date_fermeture, e.est_siege,
-            c.nom_commune, c.code_commune, c.code_epci, ep.nom_epci,
-            ST_AsGeoJSON(e.geom)::json AS geometry
+        SELECT e.siret, e.nom, e.adresse,
+               e.code_naf, e.libelle_naf, e.section_naf,
+               e.tranche_effectif, e.etat_admin,
+               e.date_creation, e.date_fermeture, e.est_siege,
+               c.nom_commune, c.code_commune, c.code_epci, ep.nom_epci,
+               ST_AsGeoJSON(e.geom)::json AS geometry
         FROM etablissements e
         JOIN communes c ON e.code_commune = c.code_commune
         JOIN epci ep ON c.code_epci = ep.code_epci
         WHERE {where}
-        LIMIT 2000
+        LIMIT 8000
     """, params)
 
     rows = cur.fetchall()
@@ -547,69 +452,62 @@ def api_etablissements_bbox():
     features = [{
         "type": "Feature",
         "properties": {
-            "siret":            r['siret'],
-            "nom":              r['nom'],
-            "adresse":          r['adresse'],
-            "code_naf":         r['code_naf'],
-            "libelle_naf":      r['libelle_naf'],
-            "section_naf":      r['section_naf'],
-            "tranche_effectif": r['tranche_effectif'],
-            "etat_admin":       r['etat_admin'],
-            "date_creation":    str(r['date_creation']) if r['date_creation'] else None,
-            "date_fermeture":   str(r['date_fermeture']) if r['date_fermeture'] else None,
-            "est_siege":        r['est_siege'],
-            "nom_commune":      r['nom_commune'],
-            "code_commune":     r['code_commune'],
-            "nom_epci":         r['nom_epci']
+            "siret": r['siret'], "nom": r['nom'], "adresse": r['adresse'],
+            "code_naf": r['code_naf'], "libelle_naf": r['libelle_naf'],
+            "section_naf": r['section_naf'], "tranche_effectif": r['tranche_effectif'],
+            "etat_admin": r['etat_admin'],
+            "date_creation": str(r['date_creation']) if r['date_creation'] else None,
+            "date_fermeture": str(r['date_fermeture']) if r['date_fermeture'] else None,
+            "est_siege": r['est_siege'], "nom_commune": r['nom_commune'],
+            "code_commune": r['code_commune'], "nom_epci": r['nom_epci']
         },
         "geometry": r['geometry']
     } for r in rows]
 
-    return jsonify({
-        "type": "FeatureCollection",
-        "features": features,
-        "total": len(features)
-    })
+    return jsonify({"type": "FeatureCollection", "features": features, "total": len(features)})
 
 @main.route('/api/count_etablissements')
 def api_count_etablissements():
-    """Compte rapide pour décider points vs choroplèthe"""
     conn = get_db()
-    cur = conn.cursor()
+    cur  = conn.cursor()
 
     code_epci    = request.args.get('code_epci', '')
     code_commune = request.args.get('code_commune', '')
+    min_lon      = request.args.get('min_lon', '')
+    min_lat      = request.args.get('min_lat', '')
+    max_lon      = request.args.get('max_lon', '')
+    max_lat      = request.args.get('max_lat', '')
     types        = request.args.getlist('types') or ['creation', 'cessation']
 
     params = []
-    cond   = []
+    cond   = ["e.geom IS NOT NULL"]
 
     periode_cond_params = []
     periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
     placeholders = ','.join(['%s'] * len(types))
     cond.append(f"""
         e.siret IN (
-            SELECT DISTINCT ev.siret
-            FROM evenements_etablissements ev
+            SELECT DISTINCT ev.siret FROM evenements_etablissements ev
             WHERE {periode_cond}
             AND ev.type_evenement IN ({placeholders})
         )
     """)
     params += periode_cond_params + types
 
-    if code_commune:
-        cond.append("e.code_commune = %s")
-        params.append(code_commune)
+    # Filtre géographique : bbox prioritaire sur epci/commune
+    if min_lon and min_lat and max_lon and max_lat:
+        cond.append("e.geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)")
+        params += [float(min_lon), float(min_lat), float(max_lon), float(max_lat)]
+    elif code_commune:
+        cond.append("e.code_commune = %s"); params.append(code_commune)
     elif code_epci:
-        cond.append("c.code_epci = %s")
-        params.append(code_epci)
+        cond.append("c.code_epci = %s"); params.append(code_epci)
 
     cur.execute(f"""
         SELECT COUNT(*) as nb
         FROM etablissements e
         JOIN communes c ON e.code_commune = c.code_commune
-        WHERE e.geom IS NOT NULL
-        AND {" AND ".join(cond)}
+        WHERE {" AND ".join(cond)}
     """, params)
 
     nb = cur.fetchone()[0]
