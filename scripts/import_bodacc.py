@@ -21,27 +21,15 @@ def get_sirens_zone():
     conn.close()
     return sirens
 
-def get_offset_actuel():
-    """Retrouve le dernier offset traité depuis la DB"""
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT COUNT(*) FROM evenements_etablissements
-        WHERE source = 'BODACC'
-    """)
-    nb = cur.fetchone()[0]
-    cur.close()
-    conn.close()
-    return nb
-
-def fetch_bodacc(offset=0, limit=100, retries=5):
+def fetch_bodacc_annee(annee, offset=0, limit=100, retries=3):
     url = (f"{BASE_URL}?where=numerodepartement%3D%2738%27"
            f"%20AND%20familleavis%3D%27collective%27"
+           f"%20AND%20year(dateparution)%3D{annee}"
            f"&limit={limit}&offset={offset}"
-           f"&select=typeavis,dateparution,commercant,registre,jugement")
+           f"&select=dateparution,commercant,registre,jugement")
     for attempt in range(retries):
         result = subprocess.run(
-            ['curl', '-s', '--max-time', '60', url],
+            ['curl', '-s', '--max-time', '30', url],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         if result.returncode == 0 and result.stdout:
@@ -51,9 +39,7 @@ def fetch_bodacc(offset=0, limit=100, retries=5):
                     return data
             except:
                 pass
-        wait = (attempt + 1) * 5
-        print(f"    tentative {attempt+1}/{retries} échouée, attente {wait}s...")
-        time.sleep(wait)
+        time.sleep((attempt + 1) * 3)
     return None
 
 def parse_type_evenement(jugement_str):
@@ -64,10 +50,7 @@ def parse_type_evenement(jugement_str):
         nature = j.get('nature', '').lower()
         if 'liquidation' in nature:
             return 'liquidation'
-        elif 'redressement' in nature or 'sauvegarde' in nature:
-            return 'redressement'
-        else:
-            return 'redressement'
+        return 'redressement'
     except:
         return None
 
@@ -91,92 +74,97 @@ print("Chargement des SIREN de la zone...")
 sirens_zone = get_sirens_zone()
 print(f"{len(sirens_zone):,} SIREN dans la zone")
 
-# Compter le total
-data = fetch_bodacc(offset=0, limit=1)
-if not data:
-    print("Erreur connexion API Bodacc")
-    exit()
-total = data.get('total_count', 0)
-print(f"Total annonces : {total:,}")
-
-# Reprendre depuis le début — ON CONFLICT DO NOTHING gère les doublons
 conn = get_conn()
 cur = conn.cursor()
 total_insere = 0
 total_ignore = 0
-offset = 0
-erreurs_consecutives = 0
 
-while offset < total:
-    data = fetch_bodacc(offset=offset, limit=100)
-    if not data or 'results' not in data:
-        erreurs_consecutives += 1
-        if erreurs_consecutives >= 5:
-            print(f"5 erreurs consécutives à offset {offset}, arrêt.")
-            break
-        print(f"  Erreur offset {offset}, attente 30s...")
-        time.sleep(30)
+# Traiter année par année de 2000 à 2026
+for annee in range(2000, 2027):
+    # Vérifier combien on a déjà pour cette année
+    cur.execute("""
+        SELECT COUNT(*) FROM evenements_etablissements
+        WHERE source = 'BODACC' AND annee = %s
+    """, (annee,))
+    deja = cur.fetchone()[0]
+
+    # Compter le total pour cette année
+    data = fetch_bodacc_annee(annee, offset=0, limit=1)
+    if not data:
+        print(f"  {annee} : erreur API")
+        continue
+    total_annee = data.get('total_count', 0)
+
+    if deja >= total_annee:
+        print(f"  {annee} : déjà complet ({deja} événements)")
         continue
 
-    erreurs_consecutives = 0
-    results = data.get('results', [])
-    if not results:
-        break
+    print(f"  {annee} : {total_annee} annonces à traiter ({deja} déjà en base)...")
 
-    for row in results:
-        siren = parse_siren(row.get('registre'))
-        if not siren or siren not in sirens_zone:
-            total_ignore += 1
+    offset = 0
+    annee_insere = 0
+
+    while offset < total_annee:
+        data = fetch_bodacc_annee(annee, offset=offset, limit=100)
+        if not data or 'results' not in data:
+            print(f"    Erreur offset {offset}, on saute...")
+            offset += 100
+            time.sleep(5)
             continue
 
-        type_evt = parse_type_evenement(row.get('jugement'))
-        date_str  = parse_date(row.get('dateparution'))
-        if not type_evt or not date_str:
-            total_ignore += 1
-            continue
+        results = data.get('results', [])
+        if not results:
+            break
 
-        try:
-            annee = int(date_str[:4])
-            mois  = int(date_str[5:7])
-            if annee < 2000 or annee > 2030:
+        for row in results:
+            siren = parse_siren(row.get('registre'))
+            if not siren or siren not in sirens_zone:
                 total_ignore += 1
                 continue
-            trimestre = (mois - 1) // 3 + 1
 
-            cur.execute("""
-                SELECT siret FROM etablissements
-                WHERE siren = %s AND est_siege = TRUE LIMIT 1
-            """, (siren,))
-            row_etab = cur.fetchone()
-            if not row_etab:
-                cur.execute("SELECT siret FROM etablissements WHERE siren = %s LIMIT 1", (siren,))
+            type_evt = parse_type_evenement(row.get('jugement'))
+            date_str  = parse_date(row.get('dateparution'))
+            if not type_evt or not date_str:
+                total_ignore += 1
+                continue
+
+            try:
+                mois = int(date_str[5:7])
+                trimestre = (mois - 1) // 3 + 1
+
+                cur.execute("""
+                    SELECT siret FROM etablissements
+                    WHERE siren = %s AND est_siege = TRUE LIMIT 1
+                """, (siren,))
                 row_etab = cur.fetchone()
-            if not row_etab:
-                total_ignore += 1
+                if not row_etab:
+                    cur.execute("SELECT siret FROM etablissements WHERE siren = %s LIMIT 1", (siren,))
+                    row_etab = cur.fetchone()
+                if not row_etab:
+                    total_ignore += 1
+                    continue
+
+                cur.execute("""
+                    INSERT INTO evenements_etablissements
+                        (siret, type_evenement, date_evenement, annee, trimestre, source, detail)
+                    VALUES (%s, %s, %s, %s, %s, 'BODACC', %s)
+                    ON CONFLICT DO NOTHING
+                """, (
+                    row_etab[0], type_evt, date_str, annee, trimestre,
+                    json.dumps({'commercant': row.get('commercant'), 'siren': siren})
+                ))
+                annee_insere += 1
+                total_insere += 1
+
+            except Exception as e:
+                conn.rollback()
                 continue
 
-            cur.execute("""
-                INSERT INTO evenements_etablissements
-                    (siret, type_evenement, date_evenement, annee, trimestre, source, detail)
-                VALUES (%s, %s, %s, %s, %s, 'BODACC', %s)
-                ON CONFLICT DO NOTHING
-            """, (
-                row_etab[0], type_evt, date_str, annee, trimestre,
-                json.dumps({'commercant': row.get('commercant'), 'siren': siren})
-            ))
-            total_insere += 1
+        conn.commit()
+        offset += len(results)
+        time.sleep(0.2)
 
-        except Exception as e:
-            conn.rollback()
-            continue
-
-    conn.commit()
-    offset += len(results)
-
-    if offset % 5000 == 0:
-        print(f"  {offset:,}/{total:,} | {total_insere:,} insérés | {total_ignore:,} ignorés")
-
-    time.sleep(0.3)
+    print(f"    → {annee_insere} insérés")
 
 cur.close()
 conn.close()
