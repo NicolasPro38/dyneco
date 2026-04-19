@@ -84,11 +84,73 @@ def api_communes_by_epci(code_epci):
     conn.close()
     return jsonify([dict(r) for r in rows])
 
-def build_geo_conditions(params_list):
-    """Construit les conditions géographiques communes aux deux routes"""
+@main.route('/api/bornes_periode')
+def api_bornes_periode():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT
+            MIN(annee) as min_annee,
+            MAX(annee) as max_annee,
+            MIN(trimestre) FILTER (WHERE annee = (SELECT MIN(annee) FROM evenements_etablissements)) as min_trim,
+            MAX(trimestre) FILTER (WHERE annee = (SELECT MAX(annee) FROM evenements_etablissements)) as max_trim
+        FROM evenements_etablissements
+    """)
+    r = cur.fetchone()
+    cur.close()
+    conn.close()
+    return jsonify(dict(r))
+
+def build_periode_condition(params_list, prefix='ev'):
+    """
+    Construit la condition temporelle selon le mode (annuel ou trimestriel).
+    Retourne une condition SQL et ajoute les params nécessaires.
+    """
+    mode        = request.args.get('mode', 'annee')
+    annee_debut = request.args.get('annee_debut', '2020')
+    annee_fin   = request.args.get('annee_fin', '2025')
+    trim_debut  = request.args.get('trim_debut', '1')
+    trim_fin    = request.args.get('trim_fin', '4')
+
+    if mode == 'trimestre':
+        # Convertir en numéro de trimestre absolu pour comparaison
+        # trimestre absolu = annee * 4 + trimestre
+        params_list += [
+            int(annee_debut) * 4 + int(trim_debut),
+            int(annee_fin) * 4 + int(trim_fin)
+        ]
+        return f"({prefix}.annee * 4 + {prefix}.trimestre) BETWEEN %s AND %s"
+    else:
+        params_list += [int(annee_debut), int(annee_fin)]
+        return f"{prefix}.annee BETWEEN %s AND %s"
+
+def build_date_condition(params_list):
+    """Condition sur date_creation des établissements"""
+    mode        = request.args.get('mode', 'annee')
+    annee_debut = request.args.get('annee_debut', '2020')
+    annee_fin   = request.args.get('annee_fin', '2025')
+    trim_debut  = request.args.get('trim_debut', '1')
+    trim_fin    = request.args.get('trim_fin', '4')
+
+    # Convertir trimestre en mois
+    mois_debut = {1: '01', 2: '04', 3: '07', 4: '10'}
+    mois_fin   = {1: '03', 2: '06', 3: '09', 4: '12'}
+
+    if mode == 'trimestre':
+        date_debut = f"{annee_debut}-{mois_debut[int(trim_debut)]}-01"
+        date_fin   = f"{annee_fin}-{mois_fin[int(trim_fin)]}-31"
+    else:
+        date_debut = f"{annee_debut}-01-01"
+        date_fin   = f"{annee_fin}-12-31"
+
+    params_list += [date_debut, date_fin]
+    return "e.date_creation BETWEEN %s AND %s"
+
+def build_geo_filter(params_list):
     conditions = []
-    code_epci    = request.args.get('code_epci', '')
     code_commune = request.args.get('code_commune', '')
+    code_epci    = request.args.get('code_epci', '')
+    section_naf  = request.args.get('section_naf', '')
 
     if code_commune:
         conditions.append("e.code_commune = %s")
@@ -97,12 +159,20 @@ def build_geo_conditions(params_list):
         conditions.append("c.code_epci = %s")
         params_list.append(code_epci)
 
-    section_naf = request.args.get('section_naf', '')
     if section_naf:
         conditions.append("e.section_naf = %s")
         params_list.append(section_naf)
 
     return conditions
+
+def build_type_filter(params_list, prefix='ev'):
+    """Filtre sur les types d'événements cochés"""
+    types = request.args.getlist('types')
+    if not types:
+        return None
+    placeholders = ','.join(['%s'] * len(types))
+    params_list += types
+    return f"{prefix}.type_evenement IN ({placeholders})"
 
 @main.route('/api/etablissements')
 def api_etablissements():
@@ -112,21 +182,29 @@ def api_etablissements():
     params = []
     conditions = ["e.geom IS NOT NULL"]
 
-    etat = request.args.get('etat', '')
-    if etat:
-        conditions.append("e.etat_admin = %s")
-        params.append(etat)
+    # Filtre géographique
+    conditions += build_geo_filter(params)
 
-    conditions += build_geo_conditions(params)
+    # Filtre temporel sur date_creation
+    conditions.append(build_date_condition(params))
 
-    annee_debut = request.args.get('annee_debut', '')
-    annee_fin   = request.args.get('annee_fin', '')
-    if annee_debut:
-        conditions.append("e.date_creation >= %s")
-        params.append(f"{annee_debut}-01-01")
-    if annee_fin:
-        conditions.append("e.date_creation <= %s")
-        params.append(f"{annee_fin}-12-31")
+    # Filtre type événement -> on filtre les établissements
+    # qui ont eu l'un des événements cochés sur la période
+    types = request.args.getlist('types')
+    if types:
+        periode_cond_params = []
+        periode_cond = build_periode_condition(periode_cond_params, prefix='ev')
+        placeholders = ','.join(['%s'] * len(types))
+        params_types = periode_cond_params + types
+        conditions.append(f"""
+            e.siret IN (
+                SELECT DISTINCT ev.siret
+                FROM evenements_etablissements ev
+                WHERE {periode_cond}
+                AND ev.type_evenement IN ({placeholders})
+            )
+        """)
+        params += params_types
 
     where = " AND ".join(conditions)
 
@@ -181,16 +259,18 @@ def api_stats():
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    annee_debut = int(request.args.get('annee_debut', 2000))
-    annee_fin   = int(request.args.get('annee_fin', 2025))
-
-    # --- Évolution annuelle créations/cessations ---
-    params_evo = [annee_debut, annee_fin]
-    cond_evo = ["ev.annee BETWEEN %s AND %s"]
-
     code_commune = request.args.get('code_commune', '')
     code_epci    = request.args.get('code_epci', '')
     section_naf  = request.args.get('section_naf', '')
+    mode         = request.args.get('mode', 'annee')
+    types        = request.args.getlist('types') or ['creation', 'cessation']
+
+    # --- Évolution ---
+    params_evo = []
+    cond_evo = []
+
+    periode_cond = build_periode_condition(params_evo, prefix='ev')
+    cond_evo.append(periode_cond)
 
     if code_commune:
         cond_evo.append("e.code_commune = %s")
@@ -198,63 +278,66 @@ def api_stats():
     elif code_epci:
         cond_evo.append("c.code_epci = %s")
         params_evo.append(code_epci)
-
     if section_naf:
         cond_evo.append("e.section_naf = %s")
         params_evo.append(section_naf)
 
+    # Filtre types
+    placeholders = ','.join(['%s'] * len(types))
+    cond_evo.append(f"ev.type_evenement IN ({placeholders})")
+    params_evo += types
+
+    if mode == 'trimestre':
+        group_select = "ev.annee, ev.trimestre"
+        order_by     = "ev.annee, ev.trimestre"
+    else:
+        group_select = "ev.annee"
+        order_by     = "ev.annee"
+
     cur.execute(f"""
-        SELECT ev.annee, ev.type_evenement, COUNT(*) as nb
+        SELECT {group_select}, ev.type_evenement, COUNT(*) as nb
         FROM evenements_etablissements ev
         JOIN etablissements e ON ev.siret = e.siret
         JOIN communes c ON e.code_commune = c.code_commune
         WHERE {" AND ".join(cond_evo)}
-        GROUP BY ev.annee, ev.type_evenement
-        ORDER BY ev.annee, ev.type_evenement
+        GROUP BY {group_select}, ev.type_evenement
+        ORDER BY {order_by}, ev.type_evenement
     """, params_evo)
     evolution = [dict(r) for r in cur.fetchall()]
 
-    # --- Solde net sur la période (créations - cessations) ---
     total_creations  = sum(r['nb'] for r in evolution if r['type_evenement'] == 'creation')
     total_cessations = sum(r['nb'] for r in evolution if r['type_evenement'] == 'cessation')
     solde_periode    = total_creations - total_cessations
 
-    # --- Répartition secteurs (actifs uniquement) ---
+    # --- Secteurs actifs ---
     params_sec = []
-    cond_sec = ["e.etat_admin = 'A'"]
-
+    cond_sec   = ["e.etat_admin = 'A'"]
     if code_commune:
-        cond_sec.append("e.code_commune = %s")
-        params_sec.append(code_commune)
+        cond_sec.append("e.code_commune = %s"); params_sec.append(code_commune)
     elif code_epci:
-        cond_sec.append("c.code_epci = %s")
-        params_sec.append(code_epci)
-
+        cond_sec.append("c.code_epci = %s"); params_sec.append(code_epci)
     if section_naf:
-        cond_sec.append("e.section_naf = %s")
-        params_sec.append(section_naf)
+        cond_sec.append("e.section_naf = %s"); params_sec.append(section_naf)
 
     cur.execute(f"""
         SELECT e.section_naf, COUNT(*) as nb
         FROM etablissements e
         JOIN communes c ON e.code_commune = c.code_commune
         WHERE {" AND ".join(cond_sec)}
-        GROUP BY e.section_naf
-        ORDER BY nb DESC
+        GROUP BY e.section_naf ORDER BY nb DESC
     """, params_sec)
     secteurs = [dict(r) for r in cur.fetchall()]
 
-    # --- Top communes (si filtre EPCI, pas commune) ---
+    # --- Top communes ---
     top_communes = []
-    if not code_commune:
-        params_top = [annee_debut, annee_fin]
-        cond_top = ["ev.annee BETWEEN %s AND %s", "ev.type_evenement = 'creation'"]
+    if not code_commune and 'creation' in types:
+        params_top = []
+        cond_top   = [build_periode_condition(params_top, prefix='ev'),
+                      "ev.type_evenement = 'creation'"]
         if code_epci:
-            cond_top.append("c.code_epci = %s")
-            params_top.append(code_epci)
+            cond_top.append("c.code_epci = %s"); params_top.append(code_epci)
         if section_naf:
-            cond_top.append("e.section_naf = %s")
-            params_top.append(section_naf)
+            cond_top.append("e.section_naf = %s"); params_top.append(section_naf)
 
         cur.execute(f"""
             SELECT c.nom_commune, COUNT(*) as nb_creations
@@ -263,8 +346,7 @@ def api_stats():
             JOIN communes c ON e.code_commune = c.code_commune
             WHERE {" AND ".join(cond_top)}
             GROUP BY c.nom_commune
-            ORDER BY nb_creations DESC
-            LIMIT 8
+            ORDER BY nb_creations DESC LIMIT 8
         """, params_top)
         top_communes = [dict(r) for r in cur.fetchall()]
 
@@ -272,12 +354,13 @@ def api_stats():
     conn.close()
 
     return jsonify({
-        "evolution":       evolution,
-        "secteurs":        secteurs,
-        "top_communes":    top_communes,
-        "solde_periode":   solde_periode,
-        "total_creations": total_creations,
-        "total_cessations": total_cessations
+        "evolution":        evolution,
+        "secteurs":         secteurs,
+        "top_communes":     top_communes,
+        "solde_periode":    solde_periode,
+        "total_creations":  total_creations,
+        "total_cessations": total_cessations,
+        "mode":             mode
     })
 
 @main.route('/api/sections_naf')
@@ -285,7 +368,7 @@ def api_sections_naf():
     sections = {
         'A': 'Agriculture, sylviculture et pêche',
         'B': 'Industries extractives',
-        'C': 'Industrie manufacturière',
+        'C': "Industrie manufacturière",
         'D': "Production et distribution d'énergie",
         'E': 'Eau, assainissement, déchets',
         'F': 'Construction',

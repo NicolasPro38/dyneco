@@ -118,3 +118,23 @@ canvas { max-width: 100%; }
 #legende { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .leg-item { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-muted); }
 .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* Toggle mode période */
+.toggle-groupe { display: flex; gap: 4px; }
+.toggle-btn {
+    flex: 1; padding: 6px; border: 1px solid var(--border);
+    background: var(--bg-panel-light); color: var(--text-muted);
+    border-radius: 4px; font-size: 0.8rem; cursor: pointer;
+    transition: all 0.2s;
+}
+.toggle-btn.active {
+    background: var(--accent); color: white; border-color: var(--accent);
+}
+
+/* Ligne trimestre */
+.trim-ligne { display: flex; gap: 6px; align-items: center; }
+.trim-ligne select { width: 60px; flex-shrink: 0; }
+.trim-ligne input { flex: 1; }
+
+#bloc-periode-annee { flex-direction: column; }
+#bloc-periode-trim  { flex-direction: column; }

@@ -18,9 +18,9 @@
             <span id="header-sub">Observer le dynamisme économique de votre territoire</span>
         </div>
         <div id="header-stats">
-            <span class="header-stat" id="stat-total">— établissements</span>
-            <span class="header-stat" id="stat-actifs">— actifs</span>
-            <span class="header-stat" id="stat-fermes">— fermés</span>
+            <span class="header-stat" id="stat-total">—</span>
+            <span class="header-stat" id="stat-actifs">—</span>
+            <span class="header-stat" id="stat-fermes">—</span>
         </div>
     </header>
 
@@ -42,15 +42,42 @@
         </div>
 
         <div class="filtre-bloc">
+            <label>Granularité temporelle</label>
+            <div class="toggle-groupe">
+                <button class="toggle-btn active" id="btn-annuel" onclick="setMode('annee')">Annuel</button>
+                <button class="toggle-btn" id="btn-trim" onclick="setMode('trimestre')">Trimestriel</button>
+            </div>
+        </div>
+
+        <div class="filtre-bloc" id="bloc-periode-annee">
             <label>Période</label>
-            <select id="filtre-granularite">
-                <option value="annee">Annuel</option>
-                <option value="trimestre">Trimestriel</option>
-            </select>
             <div id="filtre-annees">
-                <input type="number" id="annee-debut" min="2000" max="2025" value="2015">
+                <input type="number" id="annee-debut" min="1973" max="2026" value="2020">
                 <span>→</span>
-                <input type="number" id="annee-fin" min="2000" max="2025" value="2024">
+                <input type="number" id="annee-fin" min="1973" max="2026" value="2025">
+            </div>
+        </div>
+
+        <div class="filtre-bloc" id="bloc-periode-trim" style="display:none">
+            <label>De</label>
+            <div class="trim-ligne">
+                <select id="trim-debut">
+                    <option value="1">T1</option>
+                    <option value="2">T2</option>
+                    <option value="3">T3</option>
+                    <option value="4">T4</option>
+                </select>
+                <input type="number" id="annee-debut-trim" min="1973" max="2026" value="2020">
+            </div>
+            <label>À</label>
+            <div class="trim-ligne">
+                <select id="trim-fin">
+                    <option value="1">T1</option>
+                    <option value="2">T2</option>
+                    <option value="3">T3</option>
+                    <option value="4" selected>T4</option>
+                </select>
+                <input type="number" id="annee-fin-trim" min="1973" max="2026" value="2025">
             </div>
         </div>
 
@@ -78,6 +105,7 @@
                 <option value="etat_admin">État (actif / fermé)</option>
                 <option value="section_naf">Secteur d'activité</option>
                 <option value="tranche_effectif">Tranche d'effectif</option>
+                <option value="type_evenement">Type d'événement</option>
             </select>
         </div>
 
@@ -94,7 +122,6 @@
     <aside id="panel-analyses">
         <h2>Analyses</h2>
         <div id="analyses-content">
-
             <div class="stat-grid">
                 <div class="stat-bloc">
                     <div class="stat-valeur" id="an-total">—</div>
@@ -115,7 +142,7 @@
             </div>
 
             <div class="chart-bloc">
-                <div class="chart-titre">Créations / Cessations par année</div>
+                <div class="chart-titre" id="titre-evolution">Créations / Cessations par année</div>
                 <canvas id="chart-evolution"></canvas>
             </div>
 
@@ -128,7 +155,6 @@
                 <div class="chart-titre">Top communes — créations sur la période</div>
                 <canvas id="chart-communes"></canvas>
             </div>
-
         </div>
     </aside>
 
