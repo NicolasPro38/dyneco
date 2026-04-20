@@ -33,8 +33,6 @@
                 <button class="toggle-btn" id="btn-mode-stock" onclick="setModeAffichagePrincipal('stock')">Situation Actuelle</button>
             </div>
         </div>
-        <div id="filtres-evenements-bloc">
-
         <div class="filtre-bloc">
             <label>EPCI</label>
             <select id="filtre-epci">
@@ -49,6 +47,14 @@
             </select>
         </div>
 
+        <div class="filtre-bloc">
+            <label>Secteur NAF</label>
+            <select id="filtre-naf">
+                <option value="">Tous secteurs</option>
+            </select>
+        </div>
+
+        <div id="filtres-evenements-bloc">
         <div class="filtre-bloc">
             <label>Granularité temporelle</label>
             <div class="toggle-groupe">
@@ -100,13 +106,8 @@
             </div>
         </div>
 
-        <div class="filtre-bloc">
-            <label>Secteur NAF</label>
-            <select id="filtre-naf">
-                <option value="">Tous secteurs</option>
-            </select>
-        </div>
-
+        </div><!-- fin filtres-evenements-bloc -->
+        <div id="filtres-evenements-bloc-2">
         <div class="filtre-bloc">
             <label>Colorier les points par</label>
             <select id="filtre-couleur">
@@ -116,8 +117,7 @@
                 <option value="type_evenement">Type d'événement</option>
             </select>
         </div>
-
-        </div><!-- fin filtres-evenements-bloc -->
+        </div><!-- fin filtres-evenements-bloc-2 -->
         <div style="display:flex;gap:6px;">
             <button id="btn-appliquer">Appliquer</button>
             <button id="btn-reset" onclick="resetFiltres()">↺</button>
