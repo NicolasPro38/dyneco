@@ -162,7 +162,7 @@ map.on('load', async () => {
                 ${contexte}
                 ${noteBodacc}
                 <div class="popup-ligne">${p.adresse || ''}</div>
-                <div class="popup-ligne"><strong>Activité :</strong> ${p.libelle_naf || p.code_naf || 'N/R'}</div>
+                <div class="popup-ligne"><strong>Activité :</strong> ${p.libelle_naf || (p.section_naf ? LABELS_NAF[p.section_naf] : null) || p.code_naf || 'N/R'}</div>
                 <div class="popup-ligne"><strong>Effectif :</strong> ${p.tranche_effectif || 'N/R'}</div>
                 <div class="popup-ligne"><strong>Commune :</strong> ${p.nom_commune}</div>
                 <div class="popup-ligne"><strong>SIRET :</strong> ${p.siret}</div>
@@ -238,6 +238,10 @@ map.on('load', async () => {
 });
 
 async function appliquerFiltres() {
+    if (modeAffichagePrincipal === 'stock') {
+        await chargerStockActuel();
+        return;
+    }
     const btn = document.getElementById('btn-appliquer');
     btn.textContent = 'Chargement...';
     btn.disabled = true;
@@ -403,6 +407,36 @@ function mettreAJourIndicateur(nb, isChoro = false) {
 // Listener unique pour gérer la bascule choro <-> points selon zoom
 map.on('moveend', async () => {
     if (Object.keys(currentFiltres).length === 0) return;
+
+    // Mode stock : charger bbox actifs uniquement
+    if (modeAffichagePrincipal === 'stock') {
+        if (moveTimer) clearTimeout(moveTimer);
+        moveTimer = setTimeout(async () => {
+            const bounds = map.getBounds();
+            const epci    = document.getElementById('filtre-epci').value;
+            const commune = document.getElementById('filtre-commune').value;
+            const naf     = document.getElementById('filtre-naf').value;
+            const params  = new URLSearchParams({
+                min_lon: bounds.getWest(), min_lat: bounds.getSouth(),
+                max_lon: bounds.getEast(), max_lat: bounds.getNorth()
+            });
+            if (commune)   params.set('code_commune', commune);
+            else if (epci) params.set('code_epci', epci);
+            if (naf)       params.set('section_naf', naf);
+
+            const res  = await fetch(`api/stock_actuel?${params}`);
+            const data = await res.json();
+            const geojsonActifs = {
+                type: 'FeatureCollection',
+                features: data.features.filter(f => f.properties.etat_admin === 'A')
+            };
+            map.getSource('etablissements').setData(geojsonActifs);
+            modeColor = 'section_naf';
+            appliquerCouleurs();
+        }, 400);
+        return;
+    }
+
     if (modeAffichage === 'points') return; // points directs -> pas de bascule
     if (moveTimer) clearTimeout(moveTimer);
 
@@ -867,4 +901,101 @@ async function resetFiltres() {
 
     // Appliquer
     appliquerFiltres();
+}
+
+// --- MODE STOCK ACTUEL ---
+let modeAffichagePrincipal = 'evenements';
+
+function setModeAffichagePrincipal(mode) {
+    modeAffichagePrincipal = mode;
+    document.getElementById('btn-mode-evenements').classList.toggle('active', mode === 'evenements');
+    document.getElementById('btn-mode-stock').classList.toggle('active', mode === 'stock');
+
+    // Masquer filtres événements et boutons en mode stock
+    document.getElementById('filtres-evenements-bloc').style.display = mode === 'evenements' ? 'contents' : 'none';
+    document.getElementById('btn-appliquer').style.display = mode === 'evenements' ? 'block' : 'none';
+    document.getElementById('btn-reset').style.display     = mode === 'evenements' ? 'block' : 'none';
+
+    if (mode === 'stock') {
+        chargerStockActuel();
+    }
+}
+
+async function chargerStockActuel() {
+    const epci    = document.getElementById('filtre-epci').value;
+    const commune = document.getElementById('filtre-commune').value;
+    const naf     = document.getElementById('filtre-naf').value;
+    // En mode stock on colorie par secteur par défaut
+    modeColor = 'section_naf';
+    document.getElementById('filtre-couleur').value = 'section_naf';
+
+    const params = new URLSearchParams();
+    if (commune)   params.set('code_commune', commune);
+    else if (epci) params.set('code_epci', epci);
+    if (naf)       params.set('section_naf', naf);
+
+    const res  = await fetch(`api/stock_actuel?${params}`);
+    const data = await res.json();
+
+    // Toujours en mode points pour le stock - uniquement actifs - couleur par secteur
+    modeAffichage = 'points';
+    map.setPaintProperty('communes-choro', 'fill-opacity', 0);
+    map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+    map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
+    const geojsonActifs = {
+        type: 'FeatureCollection',
+        features: data.features.filter(f => f.properties.etat_admin === 'A')
+    };
+    map.getSource('etablissements').setData(geojsonActifs);
+    modeColor = 'section_naf';
+    appliquerCouleurs();
+
+    // Stats header
+    document.getElementById('stat-total').textContent  = `${data.total.toLocaleString('fr-FR')} établissements actifs`;
+    document.getElementById('stat-actifs').textContent = `${data.nb_affiches.toLocaleString('fr-FR')} affichés`;
+    document.getElementById('stat-fermes').textContent = 'Stock au ' + new Date().toLocaleDateString('fr-FR');
+
+    // Panel analyses simplifié
+    document.getElementById('an-total').textContent      = data.total.toLocaleString('fr-FR');
+    document.getElementById('an-creations').textContent  = '—';
+    document.getElementById('an-cessations').textContent = '—';
+    document.getElementById('an-solde').textContent      = 'actifs';
+    document.getElementById('an-solde').className        = 'stat-valeur vert';
+
+    recentrerCarte(epci, commune);
+}
+
+async function afficherChoroplètheStock(epci, commune, naf) {
+    // Stats par commune pour le stock actuel
+    const params = new URLSearchParams();
+    if (commune)   params.set('code_commune', commune);
+    else if (epci) params.set('code_epci', epci);
+    if (naf)       params.set('section_naf', naf);
+
+    const res  = await fetch(`api/stats_communes_stock?${params}`);
+    const data = await res.json();
+
+    const updatedFeatures = communesGeoCache.features.map(f => ({
+        ...f,
+        properties: {
+            ...f.properties,
+            nb_actifs: data[f.properties.code_commune]?.nb_actifs || 0,
+            nb_creations: 0, nb_cessations: 0, solde: 0
+        }
+    }));
+    map.getSource('communes').setData({ ...communesGeoCache, features: updatedFeatures });
+
+    const vals   = Object.values(data);
+    const maxVal = Math.max(...vals.map(r => r.nb_actifs), 1);
+
+    map.setPaintProperty('communes-choro', 'fill-color', [
+        'interpolate', ['linear'], ['get', 'nb_actifs'],
+        0,            '#1e2a3a',
+        maxVal * 0.1, '#bbdefb',
+        maxVal * 0.4, '#1e88e5',
+        maxVal,       '#0d47a1'
+    ]);
+    map.setPaintProperty('communes-choro', 'fill-opacity', 0.8);
+    map.setLayoutProperty('etablissements-points', 'visibility', 'none');
+    map.setPaintProperty('communes-fill', 'fill-opacity', 0);
 }

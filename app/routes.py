@@ -571,3 +571,114 @@ def api_taux_survie():
         'nb_fermes':     fermes,
         'taux_survie':   taux
     })
+
+@main.route('/api/stock_actuel')
+def api_stock_actuel():
+    """Tous les établissements actifs aujourd'hui"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    code_commune = request.args.get('code_commune', '')
+    code_epci    = request.args.get('code_epci', '')
+    section_naf  = request.args.get('section_naf', '')
+
+    params = []
+    cond   = ["e.geom IS NOT NULL", "e.etat_admin = 'A'"]
+
+    if code_commune:
+        cond.append("e.code_commune = %s"); params.append(code_commune)
+    elif code_epci:
+        cond.append("c.code_epci = %s"); params.append(code_epci)
+    if section_naf:
+        cond.append("e.section_naf = %s"); params.append(section_naf)
+
+    where = " AND ".join(cond)
+
+    cur.execute(f"""
+        SELECT e.siret, e.nom, e.adresse,
+               e.code_naf, e.libelle_naf, e.section_naf,
+               e.tranche_effectif, e.etat_admin,
+               e.date_creation, e.date_fermeture, e.est_siege,
+               c.nom_commune, c.code_commune, c.code_epci, ep.nom_epci,
+               ST_AsGeoJSON(e.geom)::json AS geometry,
+               (SELECT ev2.type_evenement FROM evenements_etablissements ev2
+                WHERE ev2.siret = e.siret
+                ORDER BY ev2.date_evenement DESC LIMIT 1) as dernier_evenement
+        FROM etablissements e
+        JOIN communes c ON e.code_commune = c.code_commune
+        JOIN epci ep ON c.code_epci = ep.code_epci
+        WHERE {where}
+    """, params)
+
+    rows = cur.fetchall()
+
+    # Stats
+    cur.execute(f"""
+        SELECT
+            COUNT(*) as total,
+            COUNT(DISTINCT e.section_naf) as nb_secteurs
+        FROM etablissements e
+        JOIN communes c ON e.code_commune = c.code_commune
+        WHERE {where}
+    """, params)
+    stats = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    features = [{
+        "type": "Feature",
+        "properties": {
+            "siret": r['siret'], "nom": r['nom'], "adresse": r['adresse'],
+            "code_naf": r['code_naf'], "libelle_naf": r['libelle_naf'],
+            "section_naf": r['section_naf'], "tranche_effectif": r['tranche_effectif'],
+            "etat_admin": r['etat_admin'],
+            "date_creation": str(r['date_creation']) if r['date_creation'] else None,
+            "date_fermeture": None,
+            "est_siege": r['est_siege'],
+            "nom_commune": r['nom_commune'], "code_commune": r['code_commune'],
+            "nom_epci": r['nom_epci'],
+            "dernier_evenement": r['dernier_evenement']
+        },
+        "geometry": r['geometry']
+    } for r in rows]
+
+    return jsonify({
+        "type": "FeatureCollection",
+        "features": features,
+        "total": stats['total'],
+        "nb_affiches": len(features)
+    })
+
+@main.route('/api/stats_communes_stock')
+def api_stats_communes_stock():
+    """Nb actifs par commune pour choroplèthe stock"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    code_epci    = request.args.get('code_epci', '')
+    code_commune = request.args.get('code_commune', '')
+    section_naf  = request.args.get('section_naf', '')
+
+    params = []
+    cond   = ["e.etat_admin = 'A'"]
+
+    if code_commune:
+        cond.append("e.code_commune = %s"); params.append(code_commune)
+    elif code_epci:
+        cond.append("c.code_epci = %s"); params.append(code_epci)
+    if section_naf:
+        cond.append("e.section_naf = %s"); params.append(section_naf)
+
+    cur.execute(f"""
+        SELECT e.code_commune, c.nom_commune, COUNT(*) as nb_actifs
+        FROM etablissements e
+        JOIN communes c ON e.code_commune = c.code_commune
+        WHERE {" AND ".join(cond)}
+        GROUP BY e.code_commune, c.nom_commune
+    """, params)
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify({r['code_commune']: dict(r) for r in rows})
