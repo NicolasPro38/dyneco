@@ -181,13 +181,16 @@ map.on('load', async () => {
         ];
         const features = map.queryRenderedFeatures(bbox, { layers: ['etablissements-points'] });
 
-        // Dédupliquer par SIRET
+        // Dédupliquer par SIRET + filtrer actifs en mode Situation Actuelle
         const seen = new Set();
-        const unique = features.filter(f => {
+        let unique = features.filter(f => {
             if (seen.has(f.properties.siret)) return false;
             seen.add(f.properties.siret);
             return true;
         });
+        if (modeAffichagePrincipal === 'stock') {
+            unique = unique.filter(f => f.properties.etat_admin === 'A');
+        }
 
         if (unique.length === 0) return;
 
