@@ -2,7 +2,7 @@
 
 :root {
     --header-height: 52px;
-    --panel-width: 280px;
+    --panel-width: 320px;
     --bg-panel: #1a1f2e;
     --bg-panel-light: #242938;
     --border: #2e3650;
@@ -219,4 +219,48 @@ canvas { max-width: 100%; }
     padding: 4px 6px;
     margin-bottom: 6px;
     border-left: 2px solid #FF9800;
+}
+
+/* Taux de survie */
+.survie-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.survie-stat {
+    text-align: center;
+    background: var(--bg-panel-light);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 4px;
+}
+.survie-valeur {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+.survie-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.survie-barre-container {
+    height: 8px;
+    background: #F4433644;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+.survie-barre-actifs {
+    height: 100%;
+    background: #4CAF50;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+.survie-note {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: center;
 }

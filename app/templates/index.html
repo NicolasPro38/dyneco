@@ -161,6 +161,33 @@
                 <div class="chart-titre">Top communes — créations sur la période</div>
                 <canvas id="chart-communes"></canvas>
             </div>
+
+            <div class="chart-bloc" id="bloc-survie">
+                <div class="chart-titre">Taux de survie des créations</div>
+                <div class="survie-grid">
+                    <div class="survie-stat">
+                        <div class="survie-valeur" id="survie-taux">—</div>
+                        <div class="survie-label">encore actifs</div>
+                    </div>
+                    <div class="survie-stat">
+                        <div class="survie-valeur vert" id="survie-actifs">—</div>
+                        <div class="survie-label">actifs</div>
+                    </div>
+                    <div class="survie-stat">
+                        <div class="survie-valeur rouge" id="survie-fermes">—</div>
+                        <div class="survie-label">fermés</div>
+                    </div>
+                </div>
+                <div class="survie-barre-container">
+                    <div class="survie-barre-actifs" id="survie-barre"></div>
+                </div>
+                <div class="survie-note" id="survie-note"></div>
+            </div>
+
+            <div class="chart-bloc">
+                <div class="chart-titre">Solde net par secteur</div>
+                <canvas id="chart-solde-secteur"></canvas>
+            </div>
         </div>
     </aside>
 

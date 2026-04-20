@@ -514,3 +514,44 @@ def api_count_etablissements():
     cur.close()
     conn.close()
     return jsonify({'count': nb})
+
+@main.route('/api/taux_survie')
+def api_taux_survie():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    code_commune = request.args.get('code_commune', '')
+    code_epci    = request.args.get('code_epci', '')
+    annee_debut  = int(request.args.get('annee_debut', 2015))
+    annee_fin    = int(request.args.get('annee_fin', 2020))
+
+    cond = ["EXTRACT(YEAR FROM e.date_creation) BETWEEN %s AND %s"]
+    params = [annee_debut, annee_fin]
+
+    if code_commune:
+        cond.append("e.code_commune = %s"); params.append(code_commune)
+    elif code_epci:
+        cond.append("c.code_epci = %s"); params.append(code_epci)
+
+    cur.execute(f"""
+        SELECT
+            COUNT(*) as total_crees,
+            COUNT(*) FILTER (WHERE e.etat_admin = 'A') as encore_actifs
+        FROM etablissements e
+        JOIN communes c ON e.code_commune = c.code_commune
+        WHERE {" AND ".join(cond)}
+    """, params)
+
+    r = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    total = r['total_crees'] or 0
+    actifs = r['encore_actifs'] or 0
+    taux = round(actifs / total * 100, 1) if total > 0 else 0
+
+    return jsonify({
+        'total_crees': total,
+        'encore_actifs': actifs,
+        'taux_survie': taux
+    })

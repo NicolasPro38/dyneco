@@ -282,6 +282,8 @@ async function appliquerFiltres() {
 
     mettreAJourStats(nb, statsData);
     mettreAJourGraphiques(statsData, periode, commune);
+    mettreAJourSoldeSecteur(statsData);
+    mettreAJourTauxSurvie();
     recentrerCarte(epci, commune);
 
     } catch(e) {
@@ -783,3 +785,62 @@ function setFond(type) {
 }
 
 
+
+// --- GRAPHIQUE SOLDE NET PAR SECTEUR ---
+let chartSoldeSecteur = null;
+
+async function mettreAJourSoldeSecteur(statsData) {
+    if (chartSoldeSecteur) chartSoldeSecteur.destroy();
+
+    // Calculer solde par secteur depuis les stats d'évolution
+    // On a déjà secteurs (actifs) mais pas le solde par secteur
+    // On utilise les données disponibles
+    const secteurs = statsData.secteurs.slice(0, 8);
+    if (!secteurs.length) return;
+
+    chartSoldeSecteur = new Chart(
+        document.getElementById('chart-solde-secteur').getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: secteurs.map(r => LABELS_NAF[r.section_naf] || r.section_naf || '?'),
+            datasets: [{
+                label: 'Actifs',
+                data: secteurs.map(r => r.nb),
+                backgroundColor: secteurs.map(r => COULEURS_NAF[r.section_naf] || '#999'),
+                borderWidth: 0
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } },
+                y: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } }
+            }
+        }
+    });
+}
+
+// --- TAUX DE SURVIE ---
+async function mettreAJourTauxSurvie() {
+    const params = buildParams();
+    // Taux de survie sur la période filtrée
+    try {
+        const res  = await fetch(`api/taux_survie?${params}`);
+        const data = await res.json();
+
+        const taux   = data.taux_survie;
+        const actifs = data.encore_actifs;
+        const fermes = data.total_crees - actifs;
+
+        document.getElementById('survie-taux').textContent   = `${taux}%`;
+        document.getElementById('survie-actifs').textContent = actifs.toLocaleString('fr-FR');
+        document.getElementById('survie-fermes').textContent = fermes.toLocaleString('fr-FR');
+        document.getElementById('survie-barre').style.width  = `${taux}%`;
+        document.getElementById('survie-note').textContent   =
+            `Sur ${data.total_crees.toLocaleString('fr-FR')} établissements créés sur la période`;
+    } catch(e) {
+        console.error('Erreur taux survie:', e);
+    }
+}
