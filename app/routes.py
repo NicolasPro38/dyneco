@@ -517,27 +517,41 @@ def api_count_etablissements():
 
 @main.route('/api/taux_survie')
 def api_taux_survie():
+    """
+    Taux de survie : parmi les établissements ayant eu
+    un événement 'creation' sur la période filtrée,
+    combien sont encore actifs aujourd'hui ?
+    """
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     code_commune = request.args.get('code_commune', '')
     code_epci    = request.args.get('code_epci', '')
-    annee_debut  = int(request.args.get('annee_debut', 2015))
-    annee_fin    = int(request.args.get('annee_fin', 2020))
+    section_naf  = request.args.get('section_naf', '')
 
-    cond = ["EXTRACT(YEAR FROM e.date_creation) BETWEEN %s AND %s"]
-    params = [annee_debut, annee_fin]
+    # Construire la condition période sur les événements de création
+    params_periode = []
+    periode_cond = build_periode_condition(params_periode, prefix='ev')
+
+    cond = [
+        periode_cond,
+        "ev.type_evenement = 'creation'"
+    ]
+    params = params_periode
 
     if code_commune:
         cond.append("e.code_commune = %s"); params.append(code_commune)
     elif code_epci:
         cond.append("c.code_epci = %s"); params.append(code_epci)
+    if section_naf:
+        cond.append("e.section_naf = %s"); params.append(section_naf)
 
     cur.execute(f"""
         SELECT
-            COUNT(*) as total_crees,
-            COUNT(*) FILTER (WHERE e.etat_admin = 'A') as encore_actifs
-        FROM etablissements e
+            COUNT(DISTINCT e.siret) as total_crees,
+            COUNT(DISTINCT e.siret) FILTER (WHERE e.etat_admin = 'A') as encore_actifs
+        FROM evenements_etablissements ev
+        JOIN etablissements e ON ev.siret = e.siret
         JOIN communes c ON e.code_commune = c.code_commune
         WHERE {" AND ".join(cond)}
     """, params)
@@ -546,12 +560,14 @@ def api_taux_survie():
     cur.close()
     conn.close()
 
-    total = r['total_crees'] or 0
+    total  = r['total_crees'] or 0
     actifs = r['encore_actifs'] or 0
-    taux = round(actifs / total * 100, 1) if total > 0 else 0
+    fermes = total - actifs
+    taux   = round(actifs / total * 100, 1) if total > 0 else 0
 
     return jsonify({
-        'total_crees': total,
+        'total_crees':   total,
         'encore_actifs': actifs,
-        'taux_survie': taux
+        'nb_fermes':     fermes,
+        'taux_survie':   taux
     })

@@ -832,7 +832,7 @@ async function mettreAJourTauxSurvie() {
 
         const taux   = data.taux_survie;
         const actifs = data.encore_actifs;
-        const fermes = data.total_crees - actifs;
+        const fermes = data.nb_fermes;
 
         document.getElementById('survie-taux').textContent   = `${taux}%`;
         document.getElementById('survie-actifs').textContent = actifs.toLocaleString('fr-FR');
@@ -843,4 +843,28 @@ async function mettreAJourTauxSurvie() {
     } catch(e) {
         console.error('Erreur taux survie:', e);
     }
+}
+
+// --- RÉINITIALISATION FILTRES ---
+async function resetFiltres() {
+    // Réinitialiser tous les selects
+    document.getElementById('filtre-epci').value    = '';
+    document.getElementById('filtre-commune').innerHTML = '<option value="">Toutes les communes</option>';
+    document.getElementById('filtre-naf').value     = '';
+    document.getElementById('filtre-couleur').value = 'etat_admin';
+
+    // Remettre la période par défaut
+    setMode('annee');
+    const bornesRes = await fetch('api/bornes_periode');
+    const bornes    = await bornesRes.json();
+    document.getElementById('annee-debut').value = Math.max(bornes.max_annee - 5, bornes.min_annee);
+    document.getElementById('annee-fin').value   = bornes.max_annee;
+
+    // Cocher seulement Créations et Cessations
+    document.querySelectorAll('#filtre-evenements input').forEach(cb => {
+        cb.checked = (cb.value === 'creation' || cb.value === 'cessation');
+    });
+
+    // Appliquer
+    appliquerFiltres();
 }
