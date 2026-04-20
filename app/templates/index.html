@@ -24,7 +24,7 @@
         </div>
     </header>
 
-    <aside id="panel-filtres">
+        <aside id="panel-filtres">
         <h2>Filtres</h2>
         <div class="filtre-bloc">
             <label>Mode d'affichage</label>
@@ -33,6 +33,8 @@
                 <button class="toggle-btn" id="btn-mode-stock" onclick="setModeAffichagePrincipal('stock')">Situation Actuelle</button>
             </div>
         </div>
+
+        <!-- Commun aux deux onglets -->
         <div class="filtre-bloc">
             <label>EPCI</label>
             <select id="filtre-epci">
@@ -54,47 +56,6 @@
             </select>
         </div>
 
-        <div id="filtres-evenements-bloc">
-        <div class="filtre-bloc">
-            <label>Granularité temporelle</label>
-            <div class="toggle-groupe">
-                <button class="toggle-btn active" id="btn-annuel" onclick="setMode('annee')">Annuel</button>
-                <button class="toggle-btn" id="btn-trim" onclick="setMode('trimestre')">Trimestriel</button>
-            </div>
-        </div>
-
-        <div class="filtre-bloc" id="bloc-periode-annee">
-            <label>Période</label>
-            <div id="filtre-annees">
-                <input type="number" id="annee-debut" min="1973" max="2026" value="2020">
-                <span>→</span>
-                <input type="number" id="annee-fin" min="1973" max="2026" value="2025">
-            </div>
-        </div>
-
-        <div class="filtre-bloc" id="bloc-periode-trim" style="display:none">
-            <label>De</label>
-            <div class="trim-ligne">
-                <select id="trim-debut">
-                    <option value="1">T1</option>
-                    <option value="2">T2</option>
-                    <option value="3">T3</option>
-                    <option value="4">T4</option>
-                </select>
-                <input type="number" id="annee-debut-trim" min="1973" max="2026" value="2020">
-            </div>
-            <label>À</label>
-            <div class="trim-ligne">
-                <select id="trim-fin">
-                    <option value="1">T1</option>
-                    <option value="2">T2</option>
-                    <option value="3">T3</option>
-                    <option value="4" selected>T4</option>
-                </select>
-                <input type="number" id="annee-fin-trim" min="1973" max="2026" value="2025">
-            </div>
-        </div>
-
         <div class="filtre-bloc">
             <label>Type d'événement</label>
             <div id="filtre-evenements">
@@ -106,8 +67,50 @@
             </div>
         </div>
 
-        </div><!-- fin filtres-evenements-bloc -->
-        <div id="filtres-evenements-bloc-2">
+        <!-- Uniquement Analyses Temporelles -->
+        <div id="filtres-temporels">
+            <div class="filtre-bloc">
+                <label>Granularité temporelle</label>
+                <div class="toggle-groupe">
+                    <button class="toggle-btn active" id="btn-annuel" onclick="setMode('annee')">Annuel</button>
+                    <button class="toggle-btn" id="btn-trim" onclick="setMode('trimestre')">Trimestriel</button>
+                </div>
+            </div>
+
+            <div class="filtre-bloc" id="bloc-periode-annee">
+                <label>Période</label>
+                <div id="filtre-annees">
+                    <input type="number" id="annee-debut" min="1973" max="2026" value="2020">
+                    <span>→</span>
+                    <input type="number" id="annee-fin" min="1973" max="2026" value="2025">
+                </div>
+            </div>
+
+            <div class="filtre-bloc" id="bloc-periode-trim" style="display:none">
+                <label>De</label>
+                <div class="trim-ligne">
+                    <select id="trim-debut">
+                        <option value="1">T1</option>
+                        <option value="2">T2</option>
+                        <option value="3">T3</option>
+                        <option value="4">T4</option>
+                    </select>
+                    <input type="number" id="annee-debut-trim" min="1973" max="2026" value="2020">
+                </div>
+                <label>À</label>
+                <div class="trim-ligne">
+                    <select id="trim-fin">
+                        <option value="1">T1</option>
+                        <option value="2">T2</option>
+                        <option value="3">T3</option>
+                        <option value="4" selected>T4</option>
+                    </select>
+                    <input type="number" id="annee-fin-trim" min="1973" max="2026" value="2025">
+                </div>
+            </div>
+        </div><!-- fin filtres-temporels -->
+
+        <!-- Commun aux deux onglets -->
         <div class="filtre-bloc">
             <label>Colorier les points par</label>
             <select id="filtre-couleur">
@@ -117,7 +120,7 @@
                 <option value="type_evenement">Type d'événement</option>
             </select>
         </div>
-        </div><!-- fin filtres-evenements-bloc-2 -->
+
         <div style="display:flex;gap:6px;">
             <button id="btn-appliquer">Appliquer</button>
             <button id="btn-reset" onclick="resetFiltres()">↺</button>
