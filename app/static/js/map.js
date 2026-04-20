@@ -75,7 +75,7 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
 map.on('load', async () => {
-    const bornesRes = await fetch('/api/bornes_periode');
+    const bornesRes = await fetch('api/bornes_periode');
     const bornes = await bornesRes.json();
 
     document.getElementById('annee-debut').value      = Math.max(bornes.max_annee - 5, bornes.min_annee);
@@ -85,7 +85,7 @@ map.on('load', async () => {
     document.getElementById('trim-fin').value         = bornes.max_trim || 4;
 
     const [epcisRes, communesRes, sectionsRes] = await Promise.all([
-        fetch('/api/epcis'), fetch('/api/communes'), fetch('/api/sections_naf')
+        fetch('api/epcis'), fetch('api/communes'), fetch('api/sections_naf')
     ]);
     epcisGeoCache    = await epcisRes.json();
     communesGeoCache = await communesRes.json();
@@ -710,7 +710,7 @@ async function chargerMasqueZone() {
     if (masqueZoneCharge) return;
 
     // Récupérer les géométries EPCI pour construire le masque
-    const res  = await fetch('/api/epcis');
+    const res  = await fetch('api/epcis');
     const data = await res.json();
 
     // Construire un polygone "monde entier moins nos EPCI"
