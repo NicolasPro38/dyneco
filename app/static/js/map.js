@@ -68,8 +68,9 @@ function setModeAffichagePrincipal(mode) {
     modeAffichagePrincipal = mode;
     document.getElementById('btn-mode-evenements').classList.toggle('active', mode === 'evenements');
     document.getElementById('btn-mode-stock').classList.toggle('active', mode === 'stock');
-    // Masquer uniquement granularité et période en mode Situation Actuelle
-    document.getElementById('filtres-temporels').style.display = mode === 'evenements' ? 'block' : 'none';
+    // Masquer granularité, période et type d'événement en mode Situation Actuelle
+    document.getElementById('filtres-temporels').style.display       = mode === 'evenements' ? 'block' : 'none';
+    document.getElementById('bloc-type-evenement').style.display     = mode === 'evenements' ? 'block' : 'none';
     if (mode === 'stock') {
         chargerStockActuel();
     }
