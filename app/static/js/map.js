@@ -172,6 +172,34 @@ map.on('load', async () => {
     map.on('mouseenter', 'etablissements-points', () => map.getCanvas().style.cursor = 'pointer');
     map.on('mouseleave', 'etablissements-points', () => map.getCanvas().style.cursor = '');
 
+    // Clic multi-établissements (tous les points dans un rayon de 5px)
+    map.on('click', 'etablissements-points', (e) => {
+        // Récupérer tous les features dans un rayon de 5px
+        const bbox = [
+            [e.point.x - 5, e.point.y - 5],
+            [e.point.x + 5, e.point.y + 5]
+        ];
+        const features = map.queryRenderedFeatures(bbox, { layers: ['etablissements-points'] });
+
+        // Dédupliquer par SIRET
+        const seen = new Set();
+        const unique = features.filter(f => {
+            if (seen.has(f.properties.siret)) return false;
+            seen.add(f.properties.siret);
+            return true;
+        });
+
+        if (unique.length === 0) return;
+
+        if (unique.length === 1) {
+            // Un seul établissement -> popup simple
+            afficherPopupSimple(popup, e.lngLat, unique[0].properties);
+        } else {
+            // Plusieurs établissements -> popup liste
+            afficherPopupMulti(popup, e.lngLat, unique.map(f => f.properties));
+        }
+    });
+
     // Hover communes
     map.on('mousemove', 'communes-choro', (e) => {
         if (e.features.length > 0) {
@@ -998,4 +1026,85 @@ async function afficherChoroplètheStock(epci, commune, naf) {
     map.setPaintProperty('communes-choro', 'fill-opacity', 0.8);
     map.setLayoutProperty('etablissements-points', 'visibility', 'none');
     map.setPaintProperty('communes-fill', 'fill-opacity', 0);
+}
+
+// --- POPUP FONCTIONS ---
+function afficherPopupSimple(popup, lngLat, p) {
+    const etatLabel     = p.etat_admin === 'A' ? '🟢 Actif' : '🔴 Fermé';
+    const dateCreation  = p.date_creation  ? p.date_creation.substring(0,10)  : null;
+    const dateFermeture = p.date_fermeture ? p.date_fermeture.substring(0,10) : null;
+
+    let contexte = '';
+    if (dateCreation && dateFermeture) {
+        contexte = `<div class="popup-contexte">⚠️ Créé le ${dateCreation}, fermé le ${dateFermeture}</div>`;
+    } else if (dateCreation && p.etat_admin === 'F') {
+        contexte = `<div class="popup-contexte">🔴 Créé le ${dateCreation} — fermé depuis</div>`;
+    } else if (dateCreation) {
+        contexte = `<div class="popup-contexte">🟢 Créé le ${dateCreation} — toujours actif</div>`;
+    }
+
+    let noteBodacc = '';
+    if (p.dernier_evenement === 'liquidation' && p.etat_admin === 'A') {
+        noteBodacc = `<div class="popup-note">⚠️ Annonce de liquidation publiée au Bodacc — état Sirene pas encore mis à jour</div>`;
+    } else if (p.dernier_evenement === 'redressement' && p.etat_admin === 'A') {
+        noteBodacc = `<div class="popup-note">ℹ️ Procédure de redressement publiée au Bodacc</div>`;
+    } else if (p.dernier_evenement === 'liquidation' && p.etat_admin === 'F') {
+        noteBodacc = `<div class="popup-note">🔴 Liquidation judiciaire — établissement fermé</div>`;
+    }
+
+    popup.setLngLat(lngLat).setHTML(`
+        <div class="popup-content">
+            <div class="popup-titre">${p.nom}</div>
+            <div class="popup-etat">${etatLabel}</div>
+            ${contexte}
+            ${noteBodacc}
+            <div class="popup-ligne">${p.adresse || ''}</div>
+            <div class="popup-ligne"><strong>Activité :</strong> ${p.libelle_naf || (p.section_naf ? LABELS_NAF[p.section_naf] : null) || p.code_naf || 'N/R'}</div>
+            <div class="popup-ligne"><strong>Effectif :</strong> ${p.tranche_effectif || 'N/R'}</div>
+            <div class="popup-ligne"><strong>Commune :</strong> ${p.nom_commune}</div>
+            <div class="popup-ligne"><strong>SIRET :</strong> ${p.siret}</div>
+        </div>
+    `).addTo(map);
+}
+
+function afficherPopupMulti(popup, lngLat, etablissements) {
+    const nb = etablissements.length;
+    let items = '';
+
+    etablissements.forEach((p, i) => {
+        const etatIcon = p.etat_admin === 'A' ? '🟢' : '🔴';
+        const activite = p.libelle_naf || (p.section_naf ? LABELS_NAF[p.section_naf] : null) || p.code_naf || 'N/R';
+        const creation = p.date_creation ? p.date_creation.substring(0, 10) : 'N/R';
+
+        items += `
+            <div class="popup-multi-item" onclick="togglePopupDetail(${i})">
+                <div class="popup-multi-header">
+                    <span class="popup-multi-etat">${etatIcon}</span>
+                    <span class="popup-multi-nom">${p.nom || 'N/A'}</span>
+                </div>
+                <div class="popup-multi-activite">${activite}</div>
+                <div class="popup-multi-detail" id="popup-detail-${i}" style="display:none">
+                    <div class="popup-ligne">${p.adresse || ''}</div>
+                    <div class="popup-ligne"><strong>Activité :</strong> ${activite}</div>
+                    <div class="popup-ligne"><strong>Effectif :</strong> ${p.tranche_effectif || 'N/R'}</div>
+                    <div class="popup-ligne"><strong>Création :</strong> ${creation}</div>
+                    <div class="popup-ligne"><strong>SIRET :</strong> ${p.siret}</div>
+                </div>
+            </div>
+            ${i < nb - 1 ? '<hr class="popup-separator">' : ''}
+        `;
+    });
+
+    popup.setLngLat(lngLat).setHTML(`
+        <div class="popup-content popup-multi">
+            <div class="popup-titre">${nb} établissements à cette adresse</div>
+            <div class="popup-multi-note">Cliquez sur un nom pour voir le détail</div>
+            ${items}
+        </div>
+    `).addTo(map);
+}
+
+function togglePopupDetail(index) {
+    const el = document.getElementById(`popup-detail-${index}`);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }

@@ -280,3 +280,46 @@ canvas { max-width: 100%; }
     background: var(--border);
     color: var(--text);
 }
+
+/* Popup multi-établissements */
+.popup-multi { max-height: 400px; overflow-y: auto; }
+.popup-multi-note {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    font-style: italic;
+}
+.popup-multi-item {
+    cursor: pointer;
+    padding: 4px 0;
+}
+.popup-multi-item:hover { background: #242938; }
+.popup-multi-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.popup-multi-etat { font-size: 0.8rem; }
+.popup-multi-nom {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+.popup-multi-detail {
+    padding: 6px 0 4px 16px;
+    border-left: 2px solid var(--border);
+    margin-left: 8px;
+}
+.popup-separator {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 4px 0;
+}
+
+.popup-multi-activite {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    padding-left: 18px;
+    margin-top: 1px;
+    margin-bottom: 2px;
+}
