@@ -211,7 +211,7 @@ map.on('load', async () => {
         const sel = document.getElementById('filtre-commune');
         sel.innerHTML = '<option value="">Toutes les communes</option>';
         if (code) {
-            const res = await fetch(`/api/communes_epci/${code}`);
+            const res = await fetch(`api/communes_epci/${code}`);
             const communes = await res.json();
             communes.forEach(c => {
                 const opt = document.createElement('option');
@@ -259,11 +259,11 @@ async function appliquerFiltres() {
     if (types.length) currentFiltres.types = types;
 
     // Charger stats pour les graphiques
-    const statsRes  = await fetch(`/api/stats?${buildParams()}`);
+    const statsRes  = await fetch(`api/stats?${buildParams()}`);
     const statsData = await statsRes.json();
 
     // Compter les établissements pour décider du mode d'affichage
-    const countRes  = await fetch(`/api/count_etablissements?${buildParams()}`);
+    const countRes  = await fetch(`api/count_etablissements?${buildParams()}`);
     const countData = await countRes.json();
     const nb        = countData.count;
 
@@ -298,7 +298,7 @@ async function chargerPointsDirects() {
     map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
     map.setLayoutProperty('etablissements-points', 'visibility', 'visible');
 
-    const res  = await fetch(`/api/etablissements?${buildParams()}&limit=2000`);
+    const res  = await fetch(`api/etablissements?${buildParams()}&limit=2000`);
     const data = await res.json();
     map.getSource('etablissements').setData(data);
     appliquerCouleurs();
@@ -317,7 +317,7 @@ async function chargerPointsBbox() {
     };
     // buildParams inclut déjà code_epci ou code_commune depuis currentFiltres
     const params = buildParams(extra);
-    const res    = await fetch(`/api/etablissements_bbox?${params}`);
+    const res    = await fetch(`api/etablissements_bbox?${params}`);
     const data   = await res.json();
     map.getSource('etablissements').setData(data);
     appliquerCouleurs();
@@ -328,7 +328,7 @@ async function afficherChoroplèthe(types) {
     map.setLayoutProperty('etablissements-points', 'visibility', 'none');
     map.setPaintProperty('communes-fill', 'fill-opacity', 0);
 
-    const res            = await fetch(`/api/stats_communes?${buildParams()}`);
+    const res            = await fetch(`api/stats_communes?${buildParams()}`);
     const statsParCommune = await res.json();
 
     // Injecter les stats dans les features communes
@@ -420,7 +420,7 @@ map.on('moveend', async () => {
             t.forEach(v => bboxOnly.append('types', v));
         }
         // Count dans la bbox visible SANS filtre geo (pour décider choro vs points)
-        const res  = await fetch(`/api/count_etablissements?${bboxOnly}`);
+        const res  = await fetch(`api/count_etablissements?${bboxOnly}`);
         const data = await res.json();
         console.log('moveend:', modeAffichage, '| count bbox:', data.count, '| seuil:', SEUIL_POINTS);
 
