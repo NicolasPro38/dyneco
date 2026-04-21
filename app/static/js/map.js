@@ -70,15 +70,30 @@ function buildParams(extra = {}) {
 // --- MODE AFFICHAGE PRINCIPAL ---
 function setModeAffichagePrincipal(mode) {
     modeAffichagePrincipal = mode;
+
+    // Boutons
     document.getElementById('btn-mode-evenements').classList.toggle('active', mode === 'evenements');
     document.getElementById('btn-mode-stock').classList.toggle('active', mode === 'stock');
-    // Masquer granularité, période et type d'événement en mode Situation Actuelle
-    document.getElementById('filtres-temporels').style.display       = mode === 'evenements' ? 'block' : 'none';
-    document.getElementById('analyses-evenements').style.display = mode === 'evenements' ? 'block' : 'none';
-    document.getElementById('analyses-stock').style.display      = mode === 'stock'      ? 'block' : 'none';
-    document.getElementById('bloc-type-evenement').style.display     = mode === 'evenements' ? 'block' : 'none';
+    document.getElementById('btn-mode-comparaison').classList.toggle('active', mode === 'comparaison');
+
+    // Filtres
+    document.getElementById('filtres-standard').style.display    = mode !== 'comparaison' ? 'block' : 'none';
+    document.getElementById('filtres-comparaison').style.display = mode === 'comparaison' ? 'block' : 'none';
+    document.getElementById('filtres-temporels').style.display   = (mode === 'evenements' || mode === 'comparaison') ? 'block' : 'none';
+    document.getElementById('bloc-type-evenement').style.display = mode !== 'stock'       ? 'block' : 'none';
+
+    // Sections analyses
+    document.getElementById('analyses-evenements').style.display  = mode === 'evenements'  ? 'block' : 'none';
+    document.getElementById('analyses-stock').style.display       = mode === 'stock'       ? 'block' : 'none';
+    document.getElementById('analyses-comparaison').style.display = mode === 'comparaison' ? 'block' : 'none';
+
     if (mode === 'stock') {
         chargerStockActuel();
+    } else if (mode === 'comparaison') {
+        initComparaisonSelects();
+        map.setPaintProperty('communes-fill', 'fill-color', '#1e2a3a');
+        map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+        map.setLayoutProperty('etablissements-points', 'visibility', 'none');
     }
 }
 
@@ -218,6 +233,10 @@ map.on('load', async () => {
 async function appliquerFiltres() {
     if (modeAffichagePrincipal === 'stock') {
         await chargerStockActuel();
+        return;
+    }
+    if (modeAffichagePrincipal === 'comparaison') {
+        await appliquerComparaison();
         return;
     }
     const btn = document.getElementById('btn-appliquer');
@@ -1014,8 +1033,15 @@ async function exporterPDF() {
 
         // --- CHIFFRES CLÉS ---
         const y0 = 22;
+        const nomA = document.getElementById('comp-a-nom')?.textContent || 'Commune A';
+        const nomB = document.getElementById('comp-b-nom')?.textContent || 'Commune B';
         const stats = modeAffichagePrincipal === 'stock' ? [
             { label: 'Établissements actifs', val: document.getElementById('stock-total')?.textContent || '—', color: bleu },
+        ] : modeAffichagePrincipal === 'comparaison' ? [
+            { label: nomA, val: document.getElementById('comp-a-total')?.textContent || '—', color: bleu },
+            { label: nomB, val: document.getElementById('comp-b-total')?.textContent || '—', color: [255,152,0] },
+            { label: `Survie ${nomA}`, val: document.getElementById('comp-a-survie')?.textContent || '—', color: bleu },
+            { label: `Survie ${nomB}`, val: document.getElementById('comp-b-survie')?.textContent || '—', color: [255,152,0] },
         ] : [
             { label: 'Établissements', val: document.getElementById('an-total')?.textContent || '—', color: bleu },
             { label: 'Créations',      val: document.getElementById('an-creations')?.textContent || '—', color: [76,175,80] },
@@ -1045,7 +1071,7 @@ async function exporterPDF() {
         const carteX = marge;
         const carteY = y0 + 19;
         const carteW = 130;
-        const carteH = H - carteY - 18;
+        const carteH = 130;
 
         doc.addImage(mapImg, 'JPEG', carteX, carteY, carteW, carteH);
         doc.setDrawColor(...gris);
@@ -1056,6 +1082,8 @@ async function exporterPDF() {
         const graphW = W - graphX - marge;
         const graphiques = modeAffichagePrincipal === 'stock'
             ? ['chart-secteurs-stock', 'chart-communes-stock', 'chart-anciennete', 'chart-effectif-stock']
+            : modeAffichagePrincipal === 'comparaison'
+            ? ['chart-comp-evolution', 'chart-comp-secteurs']
             : ['chart-evolution', 'chart-secteurs', 'chart-communes', 'chart-solde-secteur'];
 
         const graphH = (carteH - 6) / 2;
@@ -1085,7 +1113,7 @@ async function exporterPDF() {
 
         doc.setFontSize(7);
         doc.setTextColor(136, 146, 164);
-        doc.text('⚠️ Données issues de la Base Sirene (INSEE) et du Bodacc — non officielles, à titre indicatif uniquement.', marge, H - 8);
+        doc.text('Données issues de la Base Sirene (INSEE) et du Bodacc — non officielles, à titre indicatif uniquement.', marge, H - 8);
         doc.setTextColor(...bleu);
         doc.text('cartonicolasrey.duckdns.org/portfolio/', W - marge, H - 8, { align: 'right' });
 
@@ -1099,5 +1127,204 @@ async function exporterPDF() {
     } finally {
         btn.textContent = '📄 Exporter PDF';
         btn.disabled = false;
+    }
+}
+
+// --- COMPARAISON ---
+let chartCompEvolution = null;
+let chartCompSecteurs  = null;
+
+async function initComparaisonSelects() {
+    // Peupler les selects EPCI pour la comparaison
+    const selectsEpci = ['comp-epci-a', 'comp-epci-b'];
+    selectsEpci.forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel.options.length <= 1) {
+            epcisGeoCache.features.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.properties.code_epci;
+                opt.textContent = f.properties.nom_epci;
+                sel.appendChild(opt);
+            });
+        }
+    });
+
+    // Listeners pour charger les communes
+    ['a', 'b'].forEach(side => {
+        document.getElementById(`comp-epci-${side}`).addEventListener('change', async (e) => {
+            const code = e.target.value;
+            const sel  = document.getElementById(`comp-commune-${side}`);
+            sel.innerHTML = `<option value="">Commune ${side.toUpperCase()}...</option>`;
+            if (code) {
+                const res = await fetch(`api/communes_epci/${code}`);
+                const communes = await res.json();
+                communes.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.code_commune;
+                    opt.textContent = c.nom_commune;
+                    sel.appendChild(opt);
+                });
+            }
+        });
+    });
+}
+
+async function appliquerComparaison() {
+    const communeA = document.getElementById('comp-commune-a').value;
+    const communeB = document.getElementById('comp-commune-b').value;
+
+    if (!communeA || !communeB) {
+        alert('Veuillez sélectionner les deux communes à comparer.');
+        return;
+    }
+
+    const btn = document.getElementById('btn-appliquer');
+    btn.textContent = 'Chargement...';
+    btn.disabled = true;
+
+    try {
+        const types  = Array.from(document.querySelectorAll('#filtre-evenements input:checked')).map(cb => cb.value);
+        const periode = getParamsPeriode();
+
+        const params = new URLSearchParams();
+        params.set('commune_a', communeA);
+        params.set('commune_b', communeB);
+        Object.entries(periode).forEach(([k,v]) => params.set(k, v));
+        types.forEach(t => params.append('types', t));
+
+        const res  = await fetch(`api/comparaison?${params}`);
+        const data = await res.json();
+
+        const a = data.commune_a;
+        const b = data.commune_b;
+
+        if (!a || !b) return;
+
+        // Stats header
+        document.getElementById('comp-a-nom').textContent   = a.nom;
+        document.getElementById('comp-b-nom').textContent   = b.nom;
+        document.getElementById('comp-a-survie-nom').textContent = a.nom;
+        document.getElementById('comp-b-survie-nom').textContent = b.nom;
+
+        const totalA = a.evolution.reduce((s,r) => s + r.nb, 0);
+        const totalB = b.evolution.reduce((s,r) => s + r.nb, 0);
+        document.getElementById('comp-a-total').textContent = totalA.toLocaleString('fr-FR');
+        document.getElementById('comp-b-total').textContent = totalB.toLocaleString('fr-FR');
+        document.getElementById('comp-a-survie').textContent = `${a.taux_survie}%`;
+        document.getElementById('comp-b-survie').textContent = `${b.taux_survie}%`;
+
+        // Graphique évolution
+        const ad = parseInt(periode.annee_debut), af = parseInt(periode.annee_fin);
+        const labels = [];
+        for (let y = ad; y <= af; y++) labels.push(y);
+
+        const TYPE_COLORS_A = { creation: '#4CAF5099', cessation: '#4a90d999' };
+        const TYPE_COLORS_B = { creation: '#FF980099', cessation: '#FF572299' };
+
+        const datasets = [];
+        const typesUniques = [...new Set([...a.evolution, ...b.evolution].map(r => r.type_evenement))];
+
+        typesUniques.forEach(type => {
+            const dataA = labels.map(y => {
+                const r = a.evolution.find(r => r.annee === y && r.type_evenement === type);
+                return r ? r.nb : 0;
+            });
+            const dataB = labels.map(y => {
+                const r = b.evolution.find(r => r.annee === y && r.type_evenement === type);
+                return r ? r.nb : 0;
+            });
+            datasets.push({
+                label: `${a.nom} - ${type}`,
+                data: dataA,
+                backgroundColor: TYPE_COLORS_A[type] || '#4a90d999',
+                borderColor: TYPE_COLORS_A[type]?.replace('99','') || '#4a90d9',
+                borderWidth: 1
+            });
+            datasets.push({
+                label: `${b.nom} - ${type}`,
+                data: dataB,
+                backgroundColor: TYPE_COLORS_B[type] || '#FF980099',
+                borderColor: TYPE_COLORS_B[type]?.replace('99','') || '#FF9800',
+                borderWidth: 1
+            });
+        });
+
+        if (chartCompEvolution) chartCompEvolution.destroy();
+        chartCompEvolution = new Chart(document.getElementById('chart-comp-evolution').getContext('2d'), {
+            type: 'bar',
+            data: { labels, datasets },
+            options: { responsive: true,
+                plugins: { legend: { labels: { color: '#e8eaf0', font: { size: 9 } } } },
+                scales: { x: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } },
+                          y: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } } } }
+        });
+
+        // Graphique secteurs
+        const allSecteurs = [...new Set([...a.secteurs, ...b.secteurs].map(r => r.section_naf))];
+        const secDataA = allSecteurs.map(s => a.secteurs.find(r => r.section_naf === s)?.nb || 0);
+        const secDataB = allSecteurs.map(s => b.secteurs.find(r => r.section_naf === s)?.nb || 0);
+
+        if (chartCompSecteurs) chartCompSecteurs.destroy();
+        chartCompSecteurs = new Chart(document.getElementById('chart-comp-secteurs').getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: allSecteurs.map(s => LABELS_NAF[s] || s),
+                datasets: [
+                    { label: a.nom, data: secDataA, backgroundColor: '#4a90d999', borderColor: '#4a90d9', borderWidth: 1 },
+                    { label: b.nom, data: secDataB, backgroundColor: '#FF980099', borderColor: '#FF9800', borderWidth: 1 }
+                ]
+            },
+            options: { indexAxis: 'y', responsive: true,
+                plugins: { legend: { labels: { color: '#e8eaf0', font: { size: 9 } } } },
+                scales: { x: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } },
+                          y: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } } } }
+        });
+
+        // Carte - afficher les deux communes
+        afficherCartComparaison(communeA, communeB, a.nom, b.nom);
+
+    } catch(e) {
+        console.error('Erreur comparaison:', e);
+    } finally {
+        btn.textContent = 'Appliquer';
+        btn.disabled = false;
+    }
+}
+
+function afficherCartComparaison(codeA, codeB, nomA, nomB) {
+    // Colorier les communes sur la carte
+    const updatedFeatures = communesGeoCache.features.map(f => ({
+        ...f,
+        properties: {
+            ...f.properties,
+            comp_color: f.properties.code_commune === codeA ? 1 :
+                        f.properties.code_commune === codeB ? 2 : 0
+        }
+    }));
+    map.getSource('communes').setData({ ...communesGeoCache, features: updatedFeatures });
+
+    map.setPaintProperty('communes-fill', 'fill-color', [
+        'match', ['get', 'comp_color'],
+        1, '#4a90d9',
+        2, '#FF9800',
+        '#1e2a3a'
+    ]);
+    map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+    map.setPaintProperty('communes-choro', 'fill-opacity', 0);
+    map.setLayoutProperty('etablissements-points', 'visibility', 'none');
+
+    // Centrer sur les deux communes
+    const fA = communesGeoCache.features.find(f => f.properties.code_commune === codeA);
+    const fB = communesGeoCache.features.find(f => f.properties.code_commune === codeB);
+    if (fA && fB) {
+        const bA = getBoundsFromGeometry(fA.geometry);
+        const bB = getBoundsFromGeometry(fB.geometry);
+        if (bA && bB) {
+            const bounds = [
+                [Math.min(bA[0][0], bB[0][0]), Math.min(bA[0][1], bB[0][1])],
+                [Math.max(bA[1][0], bB[1][0]), Math.max(bA[1][1], bB[1][1])]
+            ];
+            map.fitBounds(bounds, { padding: 60, duration: 800 });
+        }
     }
 }

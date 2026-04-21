@@ -34,29 +34,52 @@
             <div class="toggle-groupe">
                 <button class="toggle-btn active" id="btn-mode-evenements" onclick="setModeAffichagePrincipal('evenements')">Analyses Temporelles</button>
                 <button class="toggle-btn" id="btn-mode-stock" onclick="setModeAffichagePrincipal('stock')">Situation Actuelle</button>
+                <button class="toggle-btn" id="btn-mode-comparaison" onclick="setModeAffichagePrincipal('comparaison')">Comparaison</button>
             </div>
         </div>
 
-        <!-- Commun aux deux onglets -->
-        <div class="filtre-bloc">
-            <label>EPCI</label>
-            <select id="filtre-epci">
-                <option value="">Tous les EPCI</option>
-            </select>
+        <!-- Commun aux onglets Analyses et Situation -->
+        <div id="filtres-standard">
+            <div class="filtre-bloc">
+                <label>EPCI</label>
+                <select id="filtre-epci">
+                    <option value="">Tous les EPCI</option>
+                </select>
+            </div>
+            <div class="filtre-bloc">
+                <label>Commune</label>
+                <select id="filtre-commune">
+                    <option value="">Toutes les communes</option>
+                </select>
+            </div>
+            <div class="filtre-bloc">
+                <label>Secteur NAF</label>
+                <select id="filtre-naf">
+                    <option value="">Tous secteurs</option>
+                </select>
+            </div>
         </div>
 
-        <div class="filtre-bloc">
-            <label>Commune</label>
-            <select id="filtre-commune">
-                <option value="">Toutes les communes</option>
-            </select>
-        </div>
-
-        <div class="filtre-bloc">
-            <label>Secteur NAF</label>
-            <select id="filtre-naf">
-                <option value="">Tous secteurs</option>
-            </select>
+        <!-- Filtres Comparaison -->
+        <div id="filtres-comparaison" style="display:none">
+            <div class="filtre-bloc">
+                <label style="color:#4a90d9">Commune A</label>
+                <select id="comp-epci-a">
+                    <option value="">EPCI...</option>
+                </select>
+                <select id="comp-commune-a" style="margin-top:4px">
+                    <option value="">Commune A...</option>
+                </select>
+            </div>
+            <div class="filtre-bloc">
+                <label style="color:#FF9800">Commune B</label>
+                <select id="comp-epci-b">
+                    <option value="">EPCI...</option>
+                </select>
+                <select id="comp-commune-b" style="margin-top:4px">
+                    <option value="">Commune B...</option>
+                </select>
+            </div>
         </div>
 
         <div class="filtre-bloc" id="bloc-type-evenement">
@@ -202,6 +225,41 @@
             <div class="chart-bloc">
                 <div class="chart-titre">Solde net par secteur</div>
                 <canvas id="chart-solde-secteur"></canvas>
+            </div>
+        </div>
+
+        <!-- SECTION COMPARAISON -->
+        <div id="analyses-comparaison" style="display:none">
+            <div class="stat-grid" style="grid-template-columns:1fr 1fr">
+                <div class="stat-bloc" style="border-top: 3px solid #4a90d9">
+                    <div class="stat-valeur" id="comp-a-total" style="color:#4a90d9">—</div>
+                    <div class="stat-label" id="comp-a-nom">Commune A</div>
+                </div>
+                <div class="stat-bloc" style="border-top: 3px solid #FF9800">
+                    <div class="stat-valeur" id="comp-b-total" style="color:#FF9800">—</div>
+                    <div class="stat-label" id="comp-b-nom">Commune B</div>
+                </div>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Créations / Cessations par année</div>
+                <canvas id="chart-comp-evolution"></canvas>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Répartition par secteur</div>
+                <canvas id="chart-comp-secteurs"></canvas>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Taux de survie</div>
+                <div class="survie-grid">
+                    <div class="survie-stat" style="border-top:2px solid #4a90d9">
+                        <div class="survie-valeur" id="comp-a-survie" style="color:#4a90d9">—</div>
+                        <div class="survie-label" id="comp-a-survie-nom">Commune A</div>
+                    </div>
+                    <div class="survie-stat" style="border-top:2px solid #FF9800">
+                        <div class="survie-valeur" id="comp-b-survie" style="color:#FF9800">—</div>
+                        <div class="survie-label" id="comp-b-survie-nom">Commune B</div>
+                    </div>
+                </div>
             </div>
         </div>
 

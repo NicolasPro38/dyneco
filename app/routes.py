@@ -694,3 +694,79 @@ def api_stats_communes_stock():
     cur.close()
     conn.close()
     return jsonify({r['code_commune']: dict(r) for r in rows})
+
+@main.route('/api/comparaison')
+def api_comparaison():
+    """Stats comparatives entre deux communes"""
+    conn = get_db()
+    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    commune_a = request.args.get('commune_a', '')
+    commune_b = request.args.get('commune_b', '')
+    types     = request.args.getlist('types') or ['creation', 'cessation']
+
+    def get_stats_commune(code_commune):
+        params_evo = []
+        periode_cond = build_periode_condition(params_evo, prefix='ev')
+        params_evo.append(code_commune)
+        placeholders = ','.join(['%s'] * len(types))
+        params_evo += types
+
+        cur.execute(f"""
+            SELECT ev.annee, ev.type_evenement, COUNT(*) as nb
+            FROM evenements_etablissements ev
+            JOIN etablissements e ON ev.siret = e.siret
+            WHERE {periode_cond}
+            AND e.code_commune = %s
+            AND ev.type_evenement IN ({placeholders})
+            GROUP BY ev.annee, ev.type_evenement
+            ORDER BY ev.annee, ev.type_evenement
+        """, params_evo)
+        evolution = [dict(r) for r in cur.fetchall()]
+
+        cur.execute("""
+            SELECT e.section_naf, COUNT(*) as nb
+            FROM etablissements e
+            WHERE e.code_commune = %s AND e.etat_admin = 'A'
+            GROUP BY e.section_naf ORDER BY nb DESC LIMIT 8
+        """, (code_commune,))
+        secteurs = [dict(r) for r in cur.fetchall()]
+
+        # Taux de survie
+        params_survie = []
+        periode_cond2 = build_periode_condition(params_survie, prefix='ev')
+        params_survie.append(code_commune)
+        cur.execute(f"""
+            SELECT COUNT(DISTINCT e.siret) as total,
+                   COUNT(DISTINCT e.siret) FILTER (WHERE e.etat_admin = 'A') as actifs
+            FROM evenements_etablissements ev
+            JOIN etablissements e ON ev.siret = e.siret
+            WHERE {periode_cond2}
+            AND e.code_commune = %s
+            AND ev.type_evenement = 'creation'
+        """, params_survie)
+        survie_row = cur.fetchone()
+        total  = survie_row['total'] or 0
+        actifs = survie_row['actifs'] or 0
+        taux   = round(actifs / total * 100, 1) if total > 0 else 0
+
+        # Nom commune
+        cur.execute("SELECT nom_commune FROM communes WHERE code_commune = %s", (code_commune,))
+        nom_row = cur.fetchone()
+        nom = nom_row['nom_commune'] if nom_row else code_commune
+
+        return {
+            'nom': nom,
+            'evolution': evolution,
+            'secteurs': secteurs,
+            'taux_survie': taux,
+            'total_crees': total
+        }
+
+    result_a = get_stats_commune(commune_a) if commune_a else None
+    result_b = get_stats_commune(commune_b) if commune_b else None
+
+    cur.close()
+    conn.close()
+
+    return jsonify({'commune_a': result_a, 'commune_b': result_b})
