@@ -980,7 +980,7 @@ function togglePanel(side) {
 // --- EXPORT PDF ---
 async function exporterPDF() {
     const btn = document.getElementById('btn-export-pdf');
-    btn.textContent = '⏳ Génération...';
+    btn.textContent = '⏳ Génération PDF + CSV...';
     btn.disabled = true;
 
     try {
@@ -1147,15 +1147,18 @@ async function exporterPDF() {
         doc.setTextColor(...bleu);
         doc.text('cartonicolasrey.duckdns.org/portfolio/', W - marge, H - 8, { align: 'right' });
 
-        // --- SAUVEGARDE ---
+        // --- SAUVEGARDE PDF ---
         const nomFichier = `DynEco_${modeStr.replace(' ', '_')}_${dateStr.replace(/ /g, '-')}.pdf`;
         doc.save(nomFichier);
+
+        // --- EXPORT CSV ---
+        await exporterCSV(modeStr, dateStr);
 
     } catch(e) {
         console.error('Erreur export PDF:', e);
         alert('Erreur lors de la génération du PDF');
     } finally {
-        btn.textContent = '📄 Exporter PDF';
+        btn.textContent = '📄 Exporter PDF + CSV';
         btn.disabled = false;
     }
 }
@@ -1356,5 +1359,96 @@ function afficherCartComparaison(codeA, codeB, nomA, nomB) {
             ];
             map.fitBounds(bounds, { padding: 60, duration: 800 });
         }
+    }
+}
+
+// --- EXPORT CSV ---
+async function exporterCSV(modeStr, dateStr) {
+    try {
+        let rows = [];
+        let filename = `DynEco_${modeStr.replace(' ', '_')}_${dateStr.replace(/ /g, '-')}.csv`;
+
+        if (modeAffichagePrincipal === 'comparaison') {
+            // Export des données de comparaison
+            const communeA = document.getElementById('comp-commune-a').value;
+            const communeB = document.getElementById('comp-commune-b').value;
+            const types    = Array.from(document.querySelectorAll('#filtre-evenements input:checked')).map(cb => cb.value);
+            const periode  = getParamsPeriode();
+            const params   = new URLSearchParams();
+            params.set('commune_a', communeA);
+            params.set('commune_b', communeB);
+            Object.entries(periode).forEach(([k,v]) => params.set(k, v));
+            types.forEach(t => params.append('types', t));
+
+            const res  = await fetch(`api/comparaison?${params}`);
+            const data = await res.json();
+
+            rows.push(['Commune', 'Année', 'Type événement', 'Nombre']);
+            [data.commune_a, data.commune_b].forEach(c => {
+                if (!c) return;
+                c.evolution.forEach(r => {
+                    rows.push([c.nom, r.annee, r.type_evenement, r.nb]);
+                });
+            });
+
+        } else if (modeAffichagePrincipal === 'stock') {
+            // Export établissements actifs
+            const epci    = document.getElementById('filtre-epci').value;
+            const commune = document.getElementById('filtre-commune').value;
+            const naf     = document.getElementById('filtre-naf').value;
+            const params  = new URLSearchParams();
+            if (commune)   params.set('code_commune', commune);
+            else if (epci) params.set('code_epci', epci);
+            if (naf)       params.set('section_naf', naf);
+
+            const res  = await fetch(`api/stock_actuel?${params}`);
+            const data = await res.json();
+
+            rows.push(['SIRET', 'Nom', 'Adresse', 'Code NAF', 'Activité', 'Secteur', 'Effectif', 'Date création', 'Commune', 'EPCI']);
+            data.features.forEach(f => {
+                const p = f.properties;
+                rows.push([
+                    p.siret, p.nom || 'N/A', p.adresse || '',
+                    p.code_naf || '', p.libelle_naf || LABELS_NAF[p.section_naf] || '',
+                    p.section_naf || '', p.tranche_effectif || '',
+                    p.date_creation || '', p.nom_commune || '', p.nom_epci || ''
+                ]);
+            });
+
+        } else {
+            // Export établissements analyse temporelle
+            const res  = await fetch(`api/etablissements?${buildParams()}&limit=10000`);
+            const data = await res.json();
+
+            rows.push(['SIRET', 'Nom', 'Adresse', 'Code NAF', 'Activité', 'Secteur', 'Effectif', 'État', 'Date création', 'Date fermeture', 'Commune', 'EPCI']);
+            data.features.forEach(f => {
+                const p = f.properties;
+                rows.push([
+                    p.siret, p.nom || 'N/A', p.adresse || '',
+                    p.code_naf || '', p.libelle_naf || LABELS_NAF[p.section_naf] || '',
+                    p.section_naf || '', p.tranche_effectif || '',
+                    p.etat_admin === 'A' ? 'Actif' : 'Fermé',
+                    p.date_creation || '', p.date_fermeture || '',
+                    p.nom_commune || '', p.nom_epci || ''
+                ]);
+            });
+        }
+
+        // Générer le CSV
+        const csvContent = rows.map(row =>
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(';')
+        ).join('\n');
+
+        const bom = '\uFEFF'; // BOM UTF-8 pour Excel
+        const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+
+    } catch(e) {
+        console.error('Erreur export CSV:', e);
     }
 }
