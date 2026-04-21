@@ -8,6 +8,8 @@
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -125,6 +127,7 @@
             <button id="btn-appliquer">Appliquer</button>
             <button id="btn-reset" onclick="resetFiltres()">↺</button>
         </div>
+        <button id="btn-export-pdf" onclick="exporterPDF()">📄 Exporter PDF</button>
 
         <div class="filtre-bloc">
             <label>Légende</label>

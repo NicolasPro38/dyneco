@@ -374,3 +374,20 @@ canvas { max-width: 100%; }
 #app {
     transition: grid-template-columns 0.3s ease;
 }
+
+#btn-export-pdf {
+    background: #2e3650;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    padding: 7px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 4px;
+    transition: all 0.2s;
+}
+#btn-export-pdf:hover {
+    background: var(--border);
+    color: var(--text);
+}

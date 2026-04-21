@@ -90,7 +90,8 @@ const map = new maplibregl.Map({
         layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0f1118' } }]
     },
     center: [5.724, 45.188],
-    zoom: 9
+    zoom: 9,
+    preserveDrawingBuffer: true
 });
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
@@ -942,3 +943,158 @@ function togglePanel(side) {
 }
 
 
+
+// --- EXPORT PDF ---
+async function exporterPDF() {
+    const btn = document.getElementById('btn-export-pdf');
+    btn.textContent = '⏳ Génération...';
+    btn.disabled = true;
+
+    try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+        const W = 297; // largeur A4 landscape
+        const H = 210; // hauteur A4 landscape
+        const marge = 10;
+
+        // --- Couleurs ---
+        const bleu  = [74, 144, 217];
+        const gris  = [46, 54, 80];
+        const blanc = [255, 255, 255];
+        const texte = [232, 234, 240];
+
+        // Fond sombre
+        doc.setFillColor(15, 17, 24);
+        doc.rect(0, 0, W, H, 'F');
+
+        // --- EN-TÊTE ---
+        doc.setFillColor(...gris);
+        doc.rect(0, 0, W, 18, 'F');
+
+        doc.setFontSize(16);
+        doc.setTextColor(...bleu);
+        doc.setFont('helvetica', 'bold');
+        doc.text('DynEco', marge, 11);
+
+        doc.setFontSize(9);
+        doc.setTextColor(...texte);
+        doc.setFont('helvetica', 'normal');
+        doc.text('Observer le dynamisme économique de votre territoire', marge + 22, 11);
+
+        // Date et mode
+        const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+        const modeStr = modeAffichagePrincipal === 'stock' ? 'Situation Actuelle' : 'Analyses Temporelles';
+        doc.setFontSize(8);
+        doc.setTextColor(...texte);
+        doc.text(`${modeStr} — ${dateStr}`, W - marge, 11, { align: 'right' });
+
+        // --- FILTRES ---
+        const epciEl    = document.getElementById('filtre-epci');
+        const communeEl = document.getElementById('filtre-commune');
+        const nafEl     = document.getElementById('filtre-naf');
+        const epciTxt    = epciEl.options[epciEl.selectedIndex]?.text || 'Tous les EPCI';
+        const communeTxt = communeEl.options[communeEl.selectedIndex]?.text || 'Toutes les communes';
+        const nafTxt     = nafEl.options[nafEl.selectedIndex]?.text || 'Tous secteurs';
+
+        let filtresTxt = `Zone : ${epciTxt}`;
+        if (communeTxt !== 'Toutes les communes') filtresTxt += ` › ${communeTxt}`;
+        if (nafTxt !== 'Tous secteurs') filtresTxt += ` | Secteur : ${nafTxt}`;
+
+        if (modeAffichagePrincipal === 'evenements') {
+            const debut = document.getElementById('annee-debut')?.value || '';
+            const fin   = document.getElementById('annee-fin')?.value || '';
+            const types = Array.from(document.querySelectorAll('#filtre-evenements input:checked')).map(cb => cb.value).join(', ');
+            filtresTxt += ` | Période : ${debut}–${fin} | Types : ${types}`;
+        }
+
+        doc.setFontSize(7);
+        doc.setTextColor(136, 146, 164);
+        doc.text(filtresTxt, marge, 16);
+
+        // --- CHIFFRES CLÉS ---
+        const y0 = 22;
+        const stats = modeAffichagePrincipal === 'stock' ? [
+            { label: 'Établissements actifs', val: document.getElementById('stock-total')?.textContent || '—', color: bleu },
+        ] : [
+            { label: 'Établissements', val: document.getElementById('an-total')?.textContent || '—', color: bleu },
+            { label: 'Créations',      val: document.getElementById('an-creations')?.textContent || '—', color: [76,175,80] },
+            { label: 'Cessations',     val: document.getElementById('an-cessations')?.textContent || '—', color: [244,67,54] },
+            { label: 'Solde net',      val: document.getElementById('an-solde')?.textContent || '—', color: [74,144,217] },
+        ];
+
+        const statW = (W - 2 * marge) / stats.length;
+        stats.forEach((s, i) => {
+            const x = marge + i * statW;
+            doc.setFillColor(...gris);
+            doc.roundedRect(x, y0, statW - 2, 16, 2, 2, 'F');
+            doc.setFontSize(14);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...s.color);
+            doc.text(s.val, x + statW/2 - 1, y0 + 9, { align: 'center' });
+            doc.setFontSize(6);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(136, 146, 164);
+            doc.text(s.label.toUpperCase(), x + statW/2 - 1, y0 + 14, { align: 'center' });
+        });
+
+        // --- CARTE --- via canvas MapLibre directement
+        const mapCanvas = map.getCanvas();
+        const mapImg = mapCanvas.toDataURL('image/jpeg', 0.85);
+
+        const carteX = marge;
+        const carteY = y0 + 19;
+        const carteW = 150;
+        const carteH = H - carteY - 18;
+
+        doc.addImage(mapImg, 'JPEG', carteX, carteY, carteW, carteH);
+        doc.setDrawColor(...gris);
+        doc.rect(carteX, carteY, carteW, carteH);
+
+        // --- GRAPHIQUES ---
+        const graphX = marge + carteW + 4;
+        const graphW = W - graphX - marge;
+        const graphiques = modeAffichagePrincipal === 'stock'
+            ? ['chart-secteurs-stock', 'chart-communes-stock', 'chart-anciennete', 'chart-effectif-stock']
+            : ['chart-evolution', 'chart-secteurs', 'chart-communes', 'chart-solde-secteur'];
+
+        const graphH = (carteH - 4) / 2;
+
+        for (let i = 0; i < Math.min(graphiques.length, 4); i++) {
+            const canvas = document.getElementById(graphiques[i]);
+            if (!canvas) continue;
+            const gx = graphX + (i % 2) * (graphW / 2 + 1);
+            const gy = carteY + Math.floor(i / 2) * (graphH + 2);
+            const gw = graphW / 2 - 1;
+
+            doc.setFillColor(...gris);
+            doc.roundedRect(gx, gy, gw, graphH, 1, 1, 'F');
+
+            try {
+                const imgData = canvas.toDataURL('image/png');
+                doc.addImage(imgData, 'PNG', gx + 1, gy + 4, gw - 2, graphH - 6);
+            } catch(e) { console.log('Graphique ignoré:', graphiques[i], e); }
+        }
+
+        // --- PIED DE PAGE ---
+        doc.setFillColor(...gris);
+        doc.rect(0, H - 14, W, 14, 'F');
+
+        doc.setFontSize(7);
+        doc.setTextColor(136, 146, 164);
+        doc.text('⚠️ Données issues de la Base Sirene (INSEE) et du Bodacc — non officielles, à titre indicatif uniquement.', marge, H - 8);
+        doc.setTextColor(...bleu);
+        doc.text('cartonicolasrey.duckdns.org/portfolio/', W - marge, H - 8, { align: 'right' });
+
+        // --- SAUVEGARDE ---
+        const nomFichier = `DynEco_${modeStr.replace(' ', '_')}_${dateStr.replace(/ /g, '-')}.pdf`;
+        doc.save(nomFichier);
+
+    } catch(e) {
+        console.error('Erreur export PDF:', e);
+        alert('Erreur lors de la génération du PDF');
+    } finally {
+        btn.textContent = '📄 Exporter PDF';
+        btn.disabled = false;
+    }
+}
