@@ -1064,6 +1064,20 @@ async function exporterPDF() {
             doc.text(s.label.toUpperCase(), x + statW/2 - 1, y0 + 14, { align: 'center' });
         });
 
+        // --- LÉGENDE COMPARAISON ---
+        if (modeAffichagePrincipal === 'comparaison') {
+            const legY = y0 + 17;
+            doc.setFillColor(74, 144, 217);
+            doc.rect(marge, legY, 6, 4, 'F');
+            doc.setFontSize(8);
+            doc.setTextColor(...texte);
+            doc.text(nomA, marge + 8, legY + 3.5);
+
+            doc.setFillColor(255, 152, 0);
+            doc.rect(marge + 60, legY, 6, 4, 'F');
+            doc.text(nomB, marge + 70, legY + 3.5);
+        }
+
         // --- CARTE --- via canvas MapLibre directement
         const mapCanvas = map.getCanvas();
         const mapImg = mapCanvas.toDataURL('image/jpeg', 0.85);
