@@ -612,16 +612,23 @@ def api_stock_actuel():
 
     rows = cur.fetchall()
 
-    # Stats
-    cur.execute(f"""
-        SELECT
-            COUNT(*) as total,
-            COUNT(DISTINCT e.section_naf) as nb_secteurs
-        FROM etablissements e
-        JOIN communes c ON e.code_commune = c.code_commune
-        WHERE {where}
-    """, params)
+    # Stats total
+    cur.execute("SELECT COUNT(*) as total FROM etablissements e JOIN communes c ON e.code_commune = c.code_commune WHERE " + where, params)
     stats = cur.fetchone()
+
+    cur.execute("SELECT e.section_naf, COUNT(*) as nb FROM etablissements e JOIN communes c ON e.code_commune = c.code_commune WHERE " + where + " GROUP BY e.section_naf ORDER BY nb DESC", params)
+    secteurs = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("SELECT c.nom_commune, COUNT(*) as nb FROM etablissements e JOIN communes c ON e.code_commune = c.code_commune WHERE " + where + " GROUP BY c.nom_commune ORDER BY nb DESC LIMIT 8", params)
+    top_communes = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("SELECT COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM e.date_creation) < 2000) as avant_2000, COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM e.date_creation) BETWEEN 2000 AND 2009) as annees_2000, COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM e.date_creation) BETWEEN 2010 AND 2019) as annees_2010, COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM e.date_creation) >= 2020) as depuis_2020, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(YEAR FROM e.date_creation)) as annee_mediane FROM etablissements e JOIN communes c ON e.code_commune = c.code_commune WHERE " + where, params)
+    anc = dict(cur.fetchone())
+    if anc.get("annee_mediane"):
+        anc["annee_mediane"] = int(anc["annee_mediane"])
+
+    cur.execute("SELECT e.tranche_effectif as tranche, COUNT(*) as nb FROM etablissements e JOIN communes c ON e.code_commune = c.code_commune WHERE " + where + " GROUP BY e.tranche_effectif ORDER BY nb DESC", params)
+    effectifs = [dict(r) for r in cur.fetchall()]
 
     cur.close()
     conn.close()
@@ -629,26 +636,31 @@ def api_stock_actuel():
     features = [{
         "type": "Feature",
         "properties": {
-            "siret": r['siret'], "nom": r['nom'], "adresse": r['adresse'],
-            "code_naf": r['code_naf'], "libelle_naf": r['libelle_naf'],
-            "section_naf": r['section_naf'], "tranche_effectif": r['tranche_effectif'],
-            "etat_admin": r['etat_admin'],
-            "date_creation": str(r['date_creation']) if r['date_creation'] else None,
+            "siret": r["siret"], "nom": r["nom"], "adresse": r["adresse"],
+            "code_naf": r["code_naf"], "libelle_naf": r["libelle_naf"],
+            "section_naf": r["section_naf"], "tranche_effectif": r["tranche_effectif"],
+            "etat_admin": r["etat_admin"],
+            "date_creation": str(r["date_creation"]) if r["date_creation"] else None,
             "date_fermeture": None,
-            "est_siege": r['est_siege'],
-            "nom_commune": r['nom_commune'], "code_commune": r['code_commune'],
-            "nom_epci": r['nom_epci'],
-            "dernier_evenement": r['dernier_evenement']
+            "est_siege": r["est_siege"],
+            "nom_commune": r["nom_commune"], "code_commune": r["code_commune"],
+            "nom_epci": r["nom_epci"],
+            "dernier_evenement": r["dernier_evenement"]
         },
-        "geometry": r['geometry']
+        "geometry": r["geometry"]
     } for r in rows]
 
     return jsonify({
         "type": "FeatureCollection",
         "features": features,
-        "total": stats['total'],
-        "nb_affiches": len(features)
+        "total": stats["total"],
+        "nb_affiches": len(features),
+        "secteurs": secteurs,
+        "top_communes": top_communes,
+        "anciennete": anc,
+        "effectifs": effectifs
     })
+
 
 @main.route('/api/stats_communes_stock')
 def api_stats_communes_stock():

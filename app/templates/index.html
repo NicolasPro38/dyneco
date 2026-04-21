@@ -143,7 +143,8 @@
     <button id="btn-toggle-analyses" onclick="togglePanel('analyses')" title="Masquer/afficher les analyses">›</button>
     <aside id="panel-analyses">
         <h2>Analyses</h2>
-        <div id="analyses-content">
+        <!-- SECTION ANALYSES TEMPORELLES -->
+        <div id="analyses-evenements">
             <div class="stat-grid">
                 <div class="stat-bloc">
                     <div class="stat-valeur" id="an-total">—</div>
@@ -162,22 +163,18 @@
                     <div class="stat-label">solde net</div>
                 </div>
             </div>
-
             <div class="chart-bloc">
                 <div class="chart-titre" id="titre-evolution">Créations / Cessations par année</div>
                 <canvas id="chart-evolution"></canvas>
             </div>
-
             <div class="chart-bloc">
                 <div class="chart-titre">Répartition par secteur (actifs)</div>
                 <canvas id="chart-secteurs"></canvas>
             </div>
-
             <div class="chart-bloc" id="bloc-communes">
                 <div class="chart-titre">Top communes — créations sur la période</div>
                 <canvas id="chart-communes"></canvas>
             </div>
-
             <div class="chart-bloc" id="bloc-survie">
                 <div class="chart-titre">Taux de survie des créations</div>
                 <div class="survie-grid">
@@ -199,10 +196,44 @@
                 </div>
                 <div class="survie-note" id="survie-note"></div>
             </div>
-
             <div class="chart-bloc">
                 <div class="chart-titre">Solde net par secteur</div>
                 <canvas id="chart-solde-secteur"></canvas>
+            </div>
+        </div>
+
+        <!-- SECTION SITUATION ACTUELLE -->
+        <div id="analyses-stock" style="display:none">
+            <div class="stat-grid">
+                <div class="stat-bloc" style="grid-column:1/-1">
+                    <div class="stat-valeur" id="stock-total">—</div>
+                    <div class="stat-label">établissements actifs</div>
+                </div>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Répartition par secteur</div>
+                <canvas id="chart-secteurs-stock"></canvas>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Top communes — établissements actifs</div>
+                <canvas id="chart-communes-stock"></canvas>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Ancienneté des établissements actifs</div>
+                <canvas id="chart-anciennete"></canvas>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Répartition par taille (effectif)</div>
+                <canvas id="chart-effectif-stock"></canvas>
+            </div>
+            <div class="chart-bloc">
+                <div class="chart-titre">Ancienneté médiane</div>
+                <div class="survie-grid" style="grid-template-columns:1fr">
+                    <div class="survie-stat">
+                        <div class="survie-valeur" id="stock-anciennete-mediane">—</div>
+                        <div class="survie-label">ans d'ancienneté médiane</div>
+                    </div>
+                </div>
             </div>
         </div>
     </aside>

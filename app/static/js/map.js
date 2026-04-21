@@ -25,6 +25,10 @@ let chartEvolution        = null;
 let chartSecteurs         = null;
 let chartCommunes         = null;
 let chartSoldeSecteur     = null;
+let chartAnciennete       = null;
+let chartSecteursStock    = null;
+let chartCommunesStock    = null;
+let chartEffectifStock    = null;
 let sectionsNaf           = {};
 let communesGeoCache      = null;
 let epcisGeoCache         = null;
@@ -70,6 +74,8 @@ function setModeAffichagePrincipal(mode) {
     document.getElementById('btn-mode-stock').classList.toggle('active', mode === 'stock');
     // Masquer granularité, période et type d'événement en mode Situation Actuelle
     document.getElementById('filtres-temporels').style.display       = mode === 'evenements' ? 'block' : 'none';
+    document.getElementById('analyses-evenements').style.display = mode === 'evenements' ? 'block' : 'none';
+    document.getElementById('analyses-stock').style.display      = mode === 'stock'      ? 'block' : 'none';
     document.getElementById('bloc-type-evenement').style.display     = mode === 'evenements' ? 'block' : 'none';
     if (mode === 'stock') {
         chargerStockActuel();
@@ -379,7 +385,71 @@ async function chargerStockActuel() {
     document.getElementById('an-solde').textContent      = 'actifs';
     document.getElementById('an-solde').className        = 'stat-valeur vert';
 
+    // Graphiques Situation Actuelle
+    mettreAJourGraphiquesStock(data);
+
     recentrerCarte(epci, commune);
+}
+
+function mettreAJourGraphiquesStock(data) {
+    document.getElementById('stock-total').textContent = (data.total || 0).toLocaleString('fr-FR');
+
+    const optsH = { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } },
+                  y: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } } } };
+    const optsV = { responsive: true, plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } },
+                  y: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } } } };
+
+    // 1. Secteurs
+    if (chartSecteursStock) chartSecteursStock.destroy();
+    const top10 = (data.secteurs || []).slice(0, 10);
+    chartSecteursStock = new Chart(document.getElementById('chart-secteurs-stock').getContext('2d'), {
+        type: 'bar',
+        data: { labels: top10.map(r => LABELS_NAF[r.section_naf] || r.section_naf || '?'),
+            datasets: [{ data: top10.map(r => r.nb), backgroundColor: top10.map(r => COULEURS_NAF[r.section_naf] || '#999'), borderWidth: 0 }] },
+        options: optsH
+    });
+
+    // 2. Top communes
+    if (chartCommunesStock) chartCommunesStock.destroy();
+    if (data.top_communes && data.top_communes.length > 0) {
+        chartCommunesStock = new Chart(document.getElementById('chart-communes-stock').getContext('2d'), {
+            type: 'bar',
+            data: { labels: data.top_communes.map(r => r.nom_commune),
+                datasets: [{ data: data.top_communes.map(r => r.nb), backgroundColor: '#4a90d999', borderColor: '#4a90d9', borderWidth: 1 }] },
+            options: optsH
+        });
+    }
+
+    // 3. Ancienneté
+    if (chartAnciennete) chartAnciennete.destroy();
+    if (data.anciennete) {
+        const a = data.anciennete;
+        chartAnciennete = new Chart(document.getElementById('chart-anciennete').getContext('2d'), {
+            type: 'bar',
+            data: { labels: ['Avant 2000', '2000–2009', '2010–2019', 'Depuis 2020'],
+                datasets: [{ data: [a.avant_2000, a.annees_2000, a.annees_2010, a.depuis_2020],
+                    backgroundColor: ['#607D8B99','#FF980099','#4a90d999','#4CAF5099'],
+                    borderColor: ['#607D8B','#FF9800','#4a90d9','#4CAF50'], borderWidth: 1 }] },
+            options: optsV
+        });
+        if (a.annee_mediane) {
+            const age = new Date().getFullYear() - a.annee_mediane;
+            document.getElementById('stock-anciennete-mediane').textContent = age;
+        }
+    }
+
+    // 4. Effectif
+    if (chartEffectifStock) chartEffectifStock.destroy();
+    if (data.effectifs && data.effectifs.length > 0) {
+        chartEffectifStock = new Chart(document.getElementById('chart-effectif-stock').getContext('2d'), {
+            type: 'bar',
+            data: { labels: data.effectifs.map(r => r.tranche || 'N/R'),
+                datasets: [{ data: data.effectifs.map(r => r.nb), backgroundColor: '#9C27B099', borderColor: '#9C27B0', borderWidth: 1 }] },
+            options: optsH
+        });
+    }
 }
 
 // --- MOVEEND ---
@@ -870,3 +940,5 @@ function togglePanel(side) {
 
     setTimeout(() => map.resize(), 350);
 }
+
+
