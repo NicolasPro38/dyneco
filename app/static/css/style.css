@@ -324,3 +324,53 @@ canvas { max-width: 100%; }
     margin-top: 1px;
     margin-bottom: 2px;
 }
+
+/* Boutons toggle panneaux */
+#btn-toggle-filtres, #btn-toggle-analyses {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 20;
+    background: #1a1f2e;
+    border: 1px solid #2e3650;
+    color: #8892a4;
+    width: 20px;
+    height: 48px;
+    border-radius: 0 4px 4px 0;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+#btn-toggle-filtres {
+    left: var(--panel-width);
+}
+#btn-toggle-analyses {
+    right: var(--panel-width);
+    border-radius: 4px 0 0 4px;
+}
+#btn-toggle-filtres:hover, #btn-toggle-analyses:hover {
+    background: #242938;
+    color: var(--text);
+}
+
+/* Panneaux repliés */
+#panel-filtres, #panel-analyses {
+    transition: opacity 0.3s ease;
+}
+#panel-filtres.collapsed, #panel-analyses.collapsed {
+    overflow: hidden;
+    padding: 0;
+    opacity: 0;
+}
+#btn-toggle-filtres.collapsed {
+    left: 0;
+}
+#btn-toggle-analyses.collapsed {
+    right: 0;
+}
+#app {
+    transition: grid-template-columns 0.3s ease;
+}

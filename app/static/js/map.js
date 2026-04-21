@@ -535,13 +535,51 @@ function mettreAJourGraphiques(statsData, periode, filtreCommune) {
         document.getElementById('titre-evolution').textContent = 'Créations / Cessations par année';
     }
 
+    // Construire les datasets pour tous les types d'événements cochés
+    const TYPE_CONFIG = {
+        'creation':     { label: 'Créations',     bg: '#4CAF5099', border: '#4CAF50' },
+        'cessation':    { label: 'Cessations',    bg: '#F4433699', border: '#F44336' },
+        'transfert':    { label: 'Transferts',    bg: '#FF980099', border: '#FF9800' },
+        'redressement': { label: 'Redressements', bg: '#9C27B099', border: '#9C27B0' },
+        'liquidation':  { label: 'Liquidations',  bg: '#60208099', border: '#602080' }
+    };
+
+    const types_coches = Array.isArray(currentFiltres.types) ? currentFiltres.types : [currentFiltres.types].filter(Boolean);
+
+    // Reconstruire les données par type depuis statsData.evolution
+    const datasets = [];
+    types_coches.forEach(type => {
+        if (!TYPE_CONFIG[type]) return;
+        let data;
+        if (mode === 'trimestre') {
+            data = labels.map(k => {
+                const row = statsData.evolution.find(r => `T${r.trimestre} ${r.annee}` === k && r.type_evenement === type);
+                return row ? row.nb : 0;
+            });
+        } else {
+            const ad = parseInt(periode.annee_debut), af = parseInt(periode.annee_fin);
+            const dMap = {};
+            for (let a = ad; a <= af; a++) dMap[a] = 0;
+            statsData.evolution.filter(r => r.type_evenement === type).forEach(r => { dMap[r.annee] = r.nb; });
+            data = labels.map(a => dMap[a] || 0);
+        }
+        datasets.push({
+            label: TYPE_CONFIG[type].label,
+            data,
+            backgroundColor: TYPE_CONFIG[type].bg,
+            borderColor: TYPE_CONFIG[type].border,
+            borderWidth: 1
+        });
+    });
+
+    // Titre adaptatif
+    const titreEvt = types_coches.map(t => TYPE_CONFIG[t]?.label || t).join(' / ');
+    document.getElementById('titre-evolution').textContent = `${titreEvt} par ${mode === 'trimestre' ? 'trimestre' : 'année'}`;
+
     if (chartEvolution) chartEvolution.destroy();
     chartEvolution = new Chart(document.getElementById('chart-evolution').getContext('2d'), {
         type: 'bar',
-        data: { labels, datasets: [
-            { label: 'Créations',  data: creationsData,  backgroundColor: '#4CAF5099', borderColor: '#4CAF50', borderWidth: 1 },
-            { label: 'Cessations', data: cessationsData, backgroundColor: '#F4433699', borderColor: '#F44336', borderWidth: 1 }
-        ]},
+        data: { labels, datasets },
         options: { responsive: true, plugins: { legend: { labels: { color: '#e8eaf0', font: { size: 10 } } } },
             scales: { x: { ticks: { color: '#8892a4', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#2e3650' } },
                       y: { ticks: { color: '#8892a4', font: { size: 9 } }, grid: { color: '#2e3650' } } } }
@@ -803,4 +841,32 @@ function afficherPopupMulti(popup, lngLat, etablissements) {
 function togglePopupDetail(index) {
     const el = document.getElementById(`popup-detail-${index}`);
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// --- TOGGLE PANNEAUX ---
+let filtresCollapsed  = false;
+let analysesCollapsed = false;
+
+function togglePanel(side) {
+    if (side === 'filtres') {
+        filtresCollapsed = !filtresCollapsed;
+        const btn = document.getElementById('btn-toggle-filtres');
+        btn.classList.toggle('collapsed', filtresCollapsed);
+        btn.textContent = filtresCollapsed ? '›' : '‹';
+    } else {
+        analysesCollapsed = !analysesCollapsed;
+        const btn = document.getElementById('btn-toggle-analyses');
+        btn.classList.toggle('collapsed', analysesCollapsed);
+        btn.textContent = analysesCollapsed ? '‹' : '›';
+    }
+
+    const leftCol  = filtresCollapsed  ? '0px' : 'var(--panel-width)';
+    const rightCol = analysesCollapsed ? '0px' : 'var(--panel-width)';
+    document.getElementById('app').style.gridTemplateColumns = `${leftCol} 1fr ${rightCol}`;
+
+    // Repositionner les boutons
+    document.getElementById('btn-toggle-filtres').style.left  = filtresCollapsed  ? '0' : 'var(--panel-width)';
+    document.getElementById('btn-toggle-analyses').style.right = analysesCollapsed ? '0' : 'var(--panel-width)';
+
+    setTimeout(() => map.resize(), 350);
 }

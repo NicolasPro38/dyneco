@@ -24,7 +24,8 @@
         </div>
     </header>
 
-        <aside id="panel-filtres">
+        <button id="btn-toggle-filtres" onclick="togglePanel('filtres')" title="Masquer/afficher les filtres">‹</button>
+    <aside id="panel-filtres">
         <h2>Filtres</h2>
         <div class="filtre-bloc">
             <label>Mode d'affichage</label>
@@ -139,6 +140,7 @@
         <button class="fond-btn" id="btn-fond-ortho" onclick="setFond('ortho')">Orthophoto</button>
     </div>
 
+    <button id="btn-toggle-analyses" onclick="togglePanel('analyses')" title="Masquer/afficher les analyses">›</button>
     <aside id="panel-analyses">
         <h2>Analyses</h2>
         <div id="analyses-content">
