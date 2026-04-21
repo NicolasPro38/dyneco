@@ -1369,27 +1369,35 @@ async function exporterCSV(modeStr, dateStr) {
         let filename = `DynEco_${modeStr.replace(' ', '_')}_${dateStr.replace(/ /g, '-')}.csv`;
 
         if (modeAffichagePrincipal === 'comparaison') {
-            // Export des données de comparaison
+            // Export liste détaillée des établissements des deux communes
             const communeA = document.getElementById('comp-commune-a').value;
             const communeB = document.getElementById('comp-commune-b').value;
             const types    = Array.from(document.querySelectorAll('#filtre-evenements input:checked')).map(cb => cb.value);
             const periode  = getParamsPeriode();
-            const params   = new URLSearchParams();
-            params.set('commune_a', communeA);
-            params.set('commune_b', communeB);
-            Object.entries(periode).forEach(([k,v]) => params.set(k, v));
-            types.forEach(t => params.append('types', t));
 
-            const res  = await fetch(`api/comparaison?${params}`);
-            const data = await res.json();
+            rows.push(['SIRET', 'Nom', 'Adresse', 'Code NAF', 'Activité', 'Secteur', 'Effectif', 'État', 'Date création', 'Date fermeture', 'Commune', 'EPCI']);
 
-            rows.push(['Commune', 'Année', 'Type événement', 'Nombre']);
-            [data.commune_a, data.commune_b].forEach(c => {
-                if (!c) return;
-                c.evolution.forEach(r => {
-                    rows.push([c.nom, r.annee, r.type_evenement, r.nb]);
+            for (const codeCommune of [communeA, communeB]) {
+                const params = new URLSearchParams();
+                params.set('code_commune', codeCommune);
+                Object.entries(periode).forEach(([k,v]) => params.set(k, v));
+                types.forEach(t => params.append('types', t));
+
+                const res  = await fetch(`api/etablissements?${params}&limit=10000`);
+                const data = await res.json();
+
+                data.features.forEach(f => {
+                    const p = f.properties;
+                    rows.push([
+                        p.siret, p.nom || 'N/A', p.adresse || '',
+                        p.code_naf || '', p.libelle_naf || LABELS_NAF[p.section_naf] || '',
+                        p.section_naf || '', p.tranche_effectif || '',
+                        p.etat_admin === 'A' ? 'Actif' : 'Fermé',
+                        p.date_creation || '', p.date_fermeture || '',
+                        p.nom_commune || '', p.nom_epci || ''
+                    ]);
                 });
-            });
+            }
 
         } else if (modeAffichagePrincipal === 'stock') {
             // Export établissements actifs
