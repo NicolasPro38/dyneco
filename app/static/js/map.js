@@ -1044,7 +1044,7 @@ async function exporterPDF() {
 
         const carteX = marge;
         const carteY = y0 + 19;
-        const carteW = 150;
+        const carteW = 130;
         const carteH = H - carteY - 18;
 
         doc.addImage(mapImg, 'JPEG', carteX, carteY, carteW, carteH);
@@ -1058,21 +1058,24 @@ async function exporterPDF() {
             ? ['chart-secteurs-stock', 'chart-communes-stock', 'chart-anciennete', 'chart-effectif-stock']
             : ['chart-evolution', 'chart-secteurs', 'chart-communes', 'chart-solde-secteur'];
 
-        const graphH = (carteH - 4) / 2;
+        const graphH = (carteH - 6) / 2;
+        const graphGap = 3;
 
         for (let i = 0; i < Math.min(graphiques.length, 4); i++) {
             const canvas = document.getElementById(graphiques[i]);
             if (!canvas) continue;
-            const gx = graphX + (i % 2) * (graphW / 2 + 1);
-            const gy = carteY + Math.floor(i / 2) * (graphH + 2);
-            const gw = graphW / 2 - 1;
+            const col = i % 2;
+            const row = Math.floor(i / 2);
+            const gw = (graphW - graphGap) / 2;
+            const gx = graphX + col * (gw + graphGap);
+            const gy = carteY + row * (graphH + graphGap);
 
             doc.setFillColor(...gris);
             doc.roundedRect(gx, gy, gw, graphH, 1, 1, 'F');
 
             try {
                 const imgData = canvas.toDataURL('image/png');
-                doc.addImage(imgData, 'PNG', gx + 1, gy + 4, gw - 2, graphH - 6);
+                doc.addImage(imgData, 'PNG', gx + 2, gy + 2, gw - 4, graphH - 4);
             } catch(e) { console.log('Graphique ignoré:', graphiques[i], e); }
         }
 
