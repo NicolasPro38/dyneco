@@ -91,9 +91,19 @@ function setModeAffichagePrincipal(mode) {
         chargerStockActuel();
     } else if (mode === 'comparaison') {
         initComparaisonSelects();
+        // Vider et masquer tous les éléments
+        map.getSource('etablissements').setData({ type: 'FeatureCollection', features: [] });
+        map.setLayoutProperty('etablissements-points', 'visibility', 'none');
+        map.setPaintProperty('communes-choro', 'fill-opacity', 0);
         map.setPaintProperty('communes-fill', 'fill-color', '#1e2a3a');
         map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
-        map.setLayoutProperty('etablissements-points', 'visibility', 'none');
+        map.getSource('communes').setData(communesGeoCache);
+    } else {
+        // Réinitialiser à la sortie de la comparaison
+        map.getSource('communes').setData(communesGeoCache);
+        map.setPaintProperty('communes-fill', 'fill-color', '#1e2a3a');
+        map.setPaintProperty('communes-fill', 'fill-opacity', 0.6);
+        map.getSource('etablissements').setData({ type: 'FeatureCollection', features: [] });
     }
 }
 
@@ -371,6 +381,10 @@ async function afficherChoroplèthe(types) {
 
 // --- STOCK ACTUEL ---
 async function chargerStockActuel() {
+    // Réinitialiser les couleurs communes si on vient de la comparaison
+    map.getSource('communes').setData(communesGeoCache);
+    map.setPaintProperty('communes-fill', 'fill-color', '#1e2a3a');
+
     const epci    = document.getElementById('filtre-epci').value;
     const commune = document.getElementById('filtre-commune').value;
     const naf     = document.getElementById('filtre-naf').value;
@@ -1035,18 +1049,21 @@ async function exporterPDF() {
         const y0 = 22;
         const nomA = document.getElementById('comp-a-nom')?.textContent || 'Commune A';
         const nomB = document.getElementById('comp-b-nom')?.textContent || 'Commune B';
+        // Nettoyer les nombres pour jsPDF (remplacer espaces insécables)
+        const cleanNum = (id) => (document.getElementById(id)?.textContent || '—').replace(/\s/g, ' ').replace(/\u202f/g, ' ');
+
         const stats = modeAffichagePrincipal === 'stock' ? [
-            { label: 'Établissements actifs', val: document.getElementById('stock-total')?.textContent || '—', color: bleu },
+            { label: 'Établissements actifs', val: cleanNum('stock-total'), color: bleu },
         ] : modeAffichagePrincipal === 'comparaison' ? [
-            { label: nomA, val: document.getElementById('comp-a-total')?.textContent || '—', color: bleu },
-            { label: nomB, val: document.getElementById('comp-b-total')?.textContent || '—', color: [255,152,0] },
-            { label: `Survie ${nomA}`, val: document.getElementById('comp-a-survie')?.textContent || '—', color: bleu },
-            { label: `Survie ${nomB}`, val: document.getElementById('comp-b-survie')?.textContent || '—', color: [255,152,0] },
+            { label: nomA, val: cleanNum('comp-a-total'), color: bleu },
+            { label: nomB, val: cleanNum('comp-b-total'), color: [255,152,0] },
+            { label: `Survie ${nomA}`, val: cleanNum('comp-a-survie'), color: bleu },
+            { label: `Survie ${nomB}`, val: cleanNum('comp-b-survie'), color: [255,152,0] },
         ] : [
-            { label: 'Établissements', val: document.getElementById('an-total')?.textContent || '—', color: bleu },
-            { label: 'Créations',      val: document.getElementById('an-creations')?.textContent || '—', color: [76,175,80] },
-            { label: 'Cessations',     val: document.getElementById('an-cessations')?.textContent || '—', color: [244,67,54] },
-            { label: 'Solde net',      val: document.getElementById('an-solde')?.textContent || '—', color: [74,144,217] },
+            { label: 'Établissements', val: cleanNum('an-total'), color: bleu },
+            { label: 'Créations',      val: cleanNum('an-creations'), color: [76,175,80] },
+            { label: 'Cessations',     val: cleanNum('an-cessations'), color: [244,67,54] },
+            { label: 'Solde net',      val: cleanNum('an-solde'), color: [74,144,217] },
         ];
 
         const statW = (W - 2 * marge) / stats.length;
@@ -1064,20 +1081,6 @@ async function exporterPDF() {
             doc.text(s.label.toUpperCase(), x + statW/2 - 1, y0 + 14, { align: 'center' });
         });
 
-        // --- LÉGENDE COMPARAISON ---
-        if (modeAffichagePrincipal === 'comparaison') {
-            const legY = y0 + 17;
-            doc.setFillColor(74, 144, 217);
-            doc.rect(marge, legY, 6, 4, 'F');
-            doc.setFontSize(8);
-            doc.setTextColor(...texte);
-            doc.text(nomA, marge + 8, legY + 3.5);
-
-            doc.setFillColor(255, 152, 0);
-            doc.rect(marge + 60, legY, 6, 4, 'F');
-            doc.text(nomB, marge + 70, legY + 3.5);
-        }
-
         // --- CARTE --- via canvas MapLibre directement
         const mapCanvas = map.getCanvas();
         const mapImg = mapCanvas.toDataURL('image/jpeg', 0.85);
@@ -1090,6 +1093,19 @@ async function exporterPDF() {
         doc.addImage(mapImg, 'JPEG', carteX, carteY, carteW, carteH);
         doc.setDrawColor(...gris);
         doc.rect(carteX, carteY, carteW, carteH);
+
+        // Légende comparaison sous la carte
+        if (modeAffichagePrincipal === 'comparaison') {
+            const legY = carteY + carteH + 3;
+            doc.setFillColor(74, 144, 217);
+            doc.rect(carteX, legY, 5, 3, 'F');
+            doc.setFontSize(7);
+            doc.setTextColor(...texte);
+            doc.text(nomA, carteX + 7, legY + 2.5);
+            doc.setFillColor(255, 152, 0);
+            doc.rect(carteX + 50, legY, 5, 3, 'F');
+            doc.text(nomB, carteX + 57, legY + 2.5);
+        }
 
         // --- GRAPHIQUES ---
         const graphX = marge + carteW + 4;
